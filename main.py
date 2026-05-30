@@ -380,18 +380,18 @@ async def main():
     src_rect = rl.Rectangle(0, 0, VIRTUAL_W, -VIRTUAL_H)
 
     # --- Models & textures ---
-    table_model   = rl.load_model(b"chinese_tea_table_2k.gltf")
-    object_model  = rl.load_model(b"mantel_clock_01_1k.gltf")
-    bg_texture    = rl.load_texture(b"wizard_room.jpg")
+    table_model   = rl.load_model(b"models/env/chinese_tea_table_2k.gltf")
+    object_model  = rl.load_model(b"models/objects/mantel_clock_01_1k.gltf")
+    bg_texture    = rl.load_texture(b"models/env/wizard_room.jpg")
     rl.set_texture_filter(bg_texture, rl.TEXTURE_FILTER_BILINEAR)
-    menu_bg_tex   = rl.load_texture(b"outside2.jpg")
+    menu_bg_tex   = rl.load_texture(b"models/env/outside2.jpg")
     rl.set_texture_filter(menu_bg_tex, rl.TEXTURE_FILTER_BILINEAR)
-    tropiland_font = rl.load_font_ex(b"TropiLand.ttf", 128, None, 0)
+    tropiland_font = rl.load_font_ex(b"fonts/TropiLand.ttf", 128, None, 0)
     rl.set_texture_filter(tropiland_font.texture, rl.TEXTURE_FILTER_BILINEAR)
 
     # --- Painting shader (Kuwahara) ---
     # WebGL (pygbag/Emscripten) needs GLSL ES 1.0; desktop uses GLSL 3.3.
-    _fs = b"painting_web.fs" if IS_WEB else b"painting.fs"
+    _fs = b"shaders/painting_web.fs" if IS_WEB else b"shaders/painting.fs"
     painting_shader  = rl.load_shader(b"", _fs)
     shader_res_loc   = rl.get_shader_location(painting_shader, b"resolution")
     painting_enabled = True                          # [K] toggles this
