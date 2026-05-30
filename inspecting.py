@@ -14,7 +14,7 @@ def draw_inspect_3d( gc: Game_context):
 
         rl.Rectangle(0, 0, gc.textures["bg"].width, gc.textures["bg"].height),
         rl.Rectangle(0, 0, gc.VIRTUAL_W, gc.VIRTUAL_H),
-        Vector2(0, 0), 0.0, rl.GRAY,
+        Vector2(0, 0), 0.0, rl.Color(255, 185, 185, 255),
     )
 
     rl.begin_mode_3d(gc.camera)
