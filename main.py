@@ -5,6 +5,9 @@ import asyncio
 import time
 import sys
 
+from inspecting import draw_inspect_3d
+from menu import draw_menu, draw_menu_bg_into_texture
+
 IS_WEB = sys.platform == "emscripten"
 
 # ---------------------------------------------------------------------------
@@ -222,93 +225,7 @@ def _update_debug_camera(gs: dict, camera: rl.Camera3D, dt: float):
 # ---------------------------------------------------------------------------
 # DRAW FUNCTIONS
 # ---------------------------------------------------------------------------
-def draw_menu_bg_into_texture(menu_bg_tex):
-    """Fills the render texture with outside.png (cover-fit). Shader will paint this."""
-    rl.clear_background(rl.BLACK)
-    tw, th = menu_bg_tex.width, menu_bg_tex.height
-    if tw == 0 or th == 0:
-        return
-    tex_aspect = tw / th
-    virt_aspect = VIRTUAL_W / VIRTUAL_H if VIRTUAL_H > 0 else 1.0
-    if virt_aspect > tex_aspect:
-        dw = VIRTUAL_W
-        dh = VIRTUAL_W / tex_aspect
-    else:
-        dh = VIRTUAL_H
-        dw = VIRTUAL_H * tex_aspect
-    dx = (VIRTUAL_W - dw) * 0.5
-    dy = (VIRTUAL_H - dh) * 0.5
-    rl.draw_texture_pro(
-        menu_bg_tex,
-        rl.Rectangle(0, 0, tw, th),
-        rl.Rectangle(dx, dy, dw, dh),
-        Vector2(0, 0), 0.0, rl.WHITE,
-    )
 
-
-def draw_menu(now: float, dst: rl.Rectangle, font: rl.Font):
-    """Menu text overlays — drawn on screen after the shader blit."""
-    sw, sh = rl.get_screen_width(), rl.get_screen_height()
-    cx = sw // 2
-
-    def _measure(text: bytes, size: float) -> int:
-        return int(rl.measure_text_ex(font, text, size, 1).x)
-
-    def _draw(text: bytes, x: int, y: int, size: float, color):
-        rl.draw_text_ex(font, text, rl.Vector2(float(x), float(y)), size, 1, color)
-
-    # Gradient-like dark band at the top so title pops
-    rl.draw_rectangle(0, 0, sw, sh, rl.Color(0, 0, 0, 80))
-    rl.draw_rectangle_gradient_v(0, 0, sw, sh // 3, rl.Color(0, 0, 0, 160), rl.Color(0, 0, 0, 0))
-    rl.draw_rectangle_gradient_v(0, sh - sh // 4, sw, sh // 4, rl.Color(0, 0, 0, 0), rl.Color(0, 0, 0, 180))
-
-    t = now * 1.2
-    offset_y = int(math.sin(t) * 4)
-
-    # --- Title ---
-    title_size = float(max(58, sh // 10))
-    title = b"7 Dias de Alfandegario"
-    tw = _measure(title, title_size)
-    ty = int(sh * 0.48) + offset_y
-    # Subtle shadow
-    _draw(title, cx - tw // 2 + 2, ty + 2, title_size, rl.Color(0, 0, 0, 120))
-    _draw(title, cx - tw // 2, ty, title_size, rl.Color(220, 175, 80, 255))
-
-    # --- Subtitle ---
-    sub_size = float(max(12, sh // 20))
-    sub = b"Bem vindo ao seu novo trabalho! Cuidado!"
-    subw = _measure(sub, sub_size)
-    _draw(sub, cx - subw // 2 + 2, int(sh * 0.59) + 2, sub_size, rl.Color(0, 0, 0, 220))
-    _draw(sub, cx - subw // 2, int(sh * 0.59), sub_size, rl.Color(210, 165, 110, 220))
-
-    # --- Divider line ---
-    line_y = int(sh * 0.64)
-    line_hw = sw // 6
-    # rl.draw_line_ex((cx - line_hw, line_y), (cx + line_hw, line_y), 10, rl.Color(180, 140, 60, 120))
-
-    # --- Prompt (pulsing) ---
-    pulse = int((math.sin(now * 2.5) * 0.5 + 0.5) * 200 + 55)
-    prompt_size = float(max(14, sh // 20))
-    prompt = b"Aperte ENTER para jogar"
-    pw = _measure(prompt, prompt_size)
-    _draw(prompt, cx - pw // 2, int(sh * 0.65), prompt_size, rl.Color(240, 200, 80, pulse))
-
-def draw_inspect_3d(gs: dict, camera: rl.Camera3D, table_model, object_model, bg_tex):
-    """Draws only the 3D scene into the render texture (no overlays)."""
-    rl.clear_background(rl.BLACK)
-
-    rl.draw_texture_pro(
-        bg_tex,
-        rl.Rectangle(0, 0, bg_tex.width, bg_tex.height),
-        rl.Rectangle(0, 0, VIRTUAL_W, VIRTUAL_H),
-        Vector2(0, 0), 0.0, rl.GRAY,
-    )
-
-    rl.begin_mode_3d(camera)
-    rl.draw_model(table_model, TABLE_POS, TABLE_SCALE, rl.WHITE)
-    object_model.transform = gs["object_transform"]
-    rl.draw_model(object_model, OBJECT_POS, 1.0, rl.Color(255, 255, 255, 255))
-    rl.end_mode_3d()
 
 
 def draw_pause(font: rl.Font):
@@ -361,6 +278,27 @@ def _set_shader_resolution(shader, loc: int, w: float, h: float):
     res = rl.ffi.new("float[2]", [w, h])
     rl.set_shader_value(shader, loc, res, rl.SHADER_UNIFORM_VEC2)
 
+def load_textures(textures: dict):
+    textures["bg"]   = rl.load_texture(b"models/env/wizard_room.jpg")
+    textures["menu_bg"] = rl.load_texture(b"models/env/outside2.jpg")
+    textures["tropiland_font"] = rl.load_font_ex(b"fonts/TropiLand.ttf", 128, None, 0)
+    rl.set_texture_filter(textures["bg"], rl.TEXTURE_FILTER_BILINEAR)
+    rl.set_texture_filter(textures["menu_bg"], rl.TEXTURE_FILTER_BILINEAR)
+    rl.set_texture_filter(textures["tropiland_font"].texture, rl.TEXTURE_FILTER_BILINEAR)
+
+def load_models(models: dict):
+    models["table"]  = rl.load_model(b"models/env/chinese_tea_table_2k.gltf")
+    models["object"] = rl.load_model(b"models/objects/mantel_clock_01_1k.gltf")
+
+def unload_textures(textures: dict):
+    rl.unload_texture(textures["bg"])
+    rl.unload_texture(textures["menu_bg"])
+    rl.unload_font(textures["tropiland_font"])
+
+def unload_models(models: dict):
+    rl.unload_model(models["table"])
+    rl.unload_model(models["object"])
+
 # ---------------------------------------------------------------------------
 # MAIN LOOP
 # ---------------------------------------------------------------------------
@@ -380,18 +318,14 @@ async def main():
     src_rect = rl.Rectangle(0, 0, VIRTUAL_W, -VIRTUAL_H)
 
     # --- Models & textures ---
-    table_model   = rl.load_model(b"models/env/chinese_tea_table_2k.gltf")
-    object_model  = rl.load_model(b"models/objects/mantel_clock_01_1k.gltf")
-    bg_texture    = rl.load_texture(b"models/env/wizard_room.jpg")
-    rl.set_texture_filter(bg_texture, rl.TEXTURE_FILTER_BILINEAR)
-    menu_bg_tex   = rl.load_texture(b"models/env/outside2.jpg")
-    rl.set_texture_filter(menu_bg_tex, rl.TEXTURE_FILTER_BILINEAR)
-    tropiland_font = rl.load_font_ex(b"fonts/TropiLand.ttf", 128, None, 0)
-    rl.set_texture_filter(tropiland_font.texture, rl.TEXTURE_FILTER_BILINEAR)
+    models: dict = {}
+    textures: dict = {}
+    load_models(models)
+    load_textures(textures)
 
     # --- Painting shader (Kuwahara) ---
     # WebGL (pygbag/Emscripten) needs GLSL ES 1.0; desktop uses GLSL 3.3.
-    _fs = b"shaders/painting_web.fs" if IS_WEB else b"shaders/painting.fs"
+    _fs = b"textures/shaders/painting_web.fs" if IS_WEB else b"textures/shaders/painting.fs"
     painting_shader  = rl.load_shader(b"", _fs)
     shader_res_loc   = rl.get_shader_location(painting_shader, b"resolution")
     painting_enabled = True                          # [K] toggles this
@@ -488,16 +422,17 @@ async def main():
         rl.begin_texture_mode(render_tex)
 
         if current_state == State.MENU:
-            draw_menu_bg_into_texture(menu_bg_tex)
+            draw_menu_bg_into_texture(textures["menu_bg"], VIRTUAL_W, VIRTUAL_H)
 
         elif current_state == State.INSPECT:
-            draw_inspect_3d(gs, camera, table_model, object_model, bg_texture)
+            draw_inspect_3d(gs, camera, models, textures, VIRTUAL_W, VIRTUAL_H, TABLE_POS, TABLE_SCALE, OBJECT_POS)
             prev_inspect_drawn = True
 
         elif current_state == State.PAUSE:
             # Keep the 3D scene visible under the pause overlay
             if prev_inspect_drawn:
-                draw_inspect_3d(gs, camera, table_model, object_model, bg_texture)
+                print("Drawing paused scene into texture...")
+                draw_inspect_3d(gs, camera, models, textures, VIRTUAL_W, VIRTUAL_H, TABLE_POS, TABLE_SCALE, OBJECT_POS)
             else:
                 rl.clear_background(rl.BLACK)
 
@@ -528,13 +463,13 @@ async def main():
 
         # ---- Overlays (unaffected by the painting shader) ---------------
         if current_state == State.MENU:
-            draw_menu(now, dst, tropiland_font)
+            draw_menu(now, dst, textures["tropiland_font"])
 
         elif current_state == State.INSPECT:
             draw_inspect_hud(gs, dst)
 
         elif current_state == State.PAUSE:
-            draw_pause(tropiland_font)
+            draw_pause(textures["tropiland_font"])
             draw_inspect_hud(gs, dst)
 
         # Transition fade drawn on top of everything
@@ -552,11 +487,8 @@ async def main():
     # --- Cleanup ---
     rl.unload_shader(painting_shader)
     rl.unload_render_texture(render_tex)
-    rl.unload_model(table_model)
-    rl.unload_model(object_model)
-    rl.unload_texture(bg_texture)
-    rl.unload_texture(menu_bg_tex)
-    rl.unload_font(tropiland_font)
+    unload_models(models)
+    unload_textures(textures)
     rl.close_window()
 
 
