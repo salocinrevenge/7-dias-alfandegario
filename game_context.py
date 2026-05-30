@@ -73,6 +73,7 @@ class Game_context:
         self.models = {}
         self.models["table"]  = rl.load_model(b"models/env/chinese_tea_table_2k.gltf")
         self.models["object"] = rl.load_model(b"models/objects/mantel_clock_01_1k.gltf")
+        # self.models["object"] = rl.load_model(b"models/objects/papel.gltf")
 
 
     def unload_textures(self):
