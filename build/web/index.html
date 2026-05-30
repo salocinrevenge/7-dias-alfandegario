@@ -1,14 +1,14 @@
 <html lang="en-us"><script src="https://pygame-web.github.io/cdn/0.9.3/pythons.js" type=module id="site" data-python="python3.12" data-LINES=42 data-COLUMNS=132 data-os="vtx,snd,gui" async defer>#<!--
 
 print("""
-Loading cover-jam from cover-jam.apk
+Loading 3d-raylib from 3d-raylib.apk
     Pygbag Version : 0.9.3
-    Template Version : 0.9.3
+    Template Version : 0.9.4
     Python  : 3.12
     CDN URL : https://pygame-web.github.io/cdn/0.9.3/
     Screen  : 1280x720
-    Title   : cover-jam
-    Folder  : cover-jam
+    Title   : 3d-raylib
+    Folder  : 3d-raylib
     Authors : pgw
     SPDX-License-Identifier: cookiecutter.spdx
 
@@ -23,28 +23,27 @@ from pathlib import Path
 # do not rename
 async def custom_site():
     import embed
-    platform.document.body.style.background = "#7f7f7f"
 
     platform.window.transfer.hidden = true
     platform.window.canvas.style.visibility = "visible"
 
 
-    bundle = "cover-jam"
+    bundle = "3d-raylib"
 
     # the C or js loader could do that but be explicit.
-    appdir = Path(f"/data/data/{bundle}") # /data/data/cover-jam
+    appdir = Path(f"/data/data/{bundle}") # /data/data/3d-raylib
     appdir.mkdir()
 
 
     # unpack filesystem from compressed archive into work dir
     if platform.window.location.host.find('.itch.zone')>0:
         import zipfile
-        async with platform.fopen("cover-jam.apk", "rb") as archive:
+        async with platform.fopen("3d-raylib.apk", "rb") as archive:
             with zipfile.ZipFile(archive) as zip_ref:
                 zip_ref.extractall(appdir.as_posix())
     else:
         import tarfile
-        async with platform.fopen("cover-jam.tar.gz", "rb") as archive:
+        async with platform.fopen("3d-raylib.tar.gz", "rb") as archive:
             tar = tarfile.open(fileobj=archive, mode="r:gz")
             tar.extractall(path=appdir.as_posix(), filter='tar')
             tar.close()
@@ -151,7 +150,7 @@ config = {
     gui_divider : 2,
     ume_block : 1,
     can_close : 0,
-    archive : "cover-jam",
+    archive : "3d-raylib",
     gui_debug : 2,
     cdn : "https://pygame-web.github.io/cdn/0.9.3/",
     autorun : 0,
@@ -163,22 +162,11 @@ config = {
 
 function show_infobox() {
     infobox.style.display = "block";
-
-    // Measure box
-    const w = infobox.offsetWidth;
-    const h = infobox.offsetHeight;
-
-    // Center in viewport
-    const left = (window.innerWidth - w) / 2;
-    const top = (window.innerHeight - h) / 2;
-
-    infobox.style.left = left + "px";
-    infobox.style.top = top + "px";
 }
 
 </script>
 
-    <title>cover-jam</title>
+    <title>3d-raylib</title>
     <meta charset="UTF-8">
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -190,89 +178,99 @@ function show_infobox() {
     <link rel="icon" type="image/png" href="favicon.png" sizes="16x16">
 
     <style>
-        #status {
-            display: inline-block;
-            vertical-align: top;
-            margin-top: 20px;
-            margin-left: 30px;
-            font-weight: bold;
-            color: rgb(120, 120, 120);
-        }
+    :root {
+        --bg: #0b0d12;
+        --text: #f5f5f5;
+        --muted: rgba(255,255,255,0.45);
+    }
 
-        #progress {
-            height: 20px;
-            width: 300px;
-        }
+    * { box-sizing: border-box; }
 
-        #infobox {
-            position: fixed; /* center relative to viewport */
-            background: green;
-            color: blue;
-            font-weight: bold;
-            padding: 12px 24px;
- /*           display: none; */
-            z-index: 999999;
-        }
-        div.emscripten { text-align: center; }
-        div.emscripten_border { border: 1px solid black; }
-        div.thick_border { border: 4px solid black; }
+    html, body {
+        width: 100%; height: 100%; margin: 0;
+        overflow: hidden;
+        background: #0b0d12;
+        font-family: Inter, system-ui, sans-serif;
+        color: var(--text);
+    }
 
-        /* the canvas *must not* have any border or padding, or mouse coords will be wrong */
-        /* average size of droid screen 470dp x 320dp  */
-        canvas.emscripten {
-            border: 0px none;
-            background-color: transparent;
-            width: 100%;
-            height: 100%;
-            z-index: 5;
+    body {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
 
-            padding: 0;
-            margin: 0 auto;
+    canvas.emscripten {
+        position: absolute;
+        inset: 0; width: 100%; height: 100%;
+        border: none; background: transparent;
+        image-rendering: pixelated; outline: none;
+    }
 
-            position: absolute;
-            top: 0;
-            bottom: 0;
-            left: 0;
-            right: 0;
-        }
+    #transfer {
+        position: fixed; inset: 0;
+        display: flex; flex-direction: column;
+        align-items: center; justify-content: center;
+        gap: 32px;
+        z-index: 20;
+        pointer-events: none;
+    }
 
-        body {
-            font-family: arial;
-            margin: 0;
-            padding: none;
-            background-color:powderblue;
-        }
+    #spinner {
+        width: 48px; height: 48px;
+        border: 2px solid rgba(255,255,255,0.08);
+        border-top-color: rgba(255,255,255,0.7);
+        border-radius: 50%;
+        animation: spin 1s linear infinite;
+    }
 
-        .topright{
-           position:absolute;
-           top:0px;
-           right:0px;
-        }
+    @keyframes spin { to { transform: rotate(360deg); } }
 
-        .bottomright {
-            position:absolute;
-            top: 40%;
-            right: 0px;
-        }
+    #status {
+        font-size: 12px;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+        color: var(--muted);
+        opacity: 0;
+        animation: fadein 0.6s ease 1.2s forwards;
+    }
 
-        .center {
-            display: flex;
-            align-items: center;
-            justify-content: center;
-        }
+    @keyframes fadein { to { opacity: 1; } }
 
-        .trinfo{
-           position: relative;
-           right: 0px;
-           border: 1px solid black;
-        }
+    #progress { display: none; }
 
-        .framed{
-           position: relative;
-           top: 150px;
-           right: 10px;
-           border: 1px solid black;
-        }
+    #infobox {
+        display: none; /* Keep it hidden until JS shows it */
+        position: fixed;
+        left: 50%; 
+        top: 50%;
+        transform: translate(-50%, -50%);
+        text-align: center;
+        color: var(--muted);
+        font-size: 12px;
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+        z-index: 1000;
+        background: none;
+        border: none;
+        box-shadow: none;
+        backdrop-filter: none;
+        padding: 0;
+    }
+
+    #pyconsole, #system, #box, #dlg, #html { display: none; }
+
+    button {
+        background: rgba(255,255,255,0.04);
+        border: 1px solid rgba(255,255,255,0.08);
+        color: var(--text);
+        border-radius: 10px;
+        padding: 10px 14px;
+        font-size: 13px;
+        transition: background 0.2s;
+    }
+    button:hover { background: rgba(255,255,255,0.08); }
+
     </style>
 
     <script>
@@ -284,21 +282,12 @@ function show_infobox() {
 */
     </script>
 
-    <script src="https://pygame-web.github.io/cdn/0.9.3//browserfs.min.js"></script>
-
 </head>
 
 <body>
 
     <div id="transfer" align=center>
-<!--        <div class="spinner" id='spinner'></div> -->
-        <div class="emscripten" id="status">Downloading...</div>
-        <div class="emscripten">
-            <progress value="0" max="100" id="progress"></progress>
-        </div>
     </div>
-
-
 
     <canvas class="emscripten" id="canvas"
 width="1px"
