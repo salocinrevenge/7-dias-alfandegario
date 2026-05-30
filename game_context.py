@@ -58,7 +58,26 @@ class Game_context:
         self.transition         = Transition()
         self.prev_time          = time.time()
         self.now                = self.prev_time
-        self.player              = None
+        self.player             = None
+        self.player_cartas_odio = 0
+        self.odio_to_day = 5
+        self.dia_atual = 1
+        self.n_itens_dias = {
+            1: 3,
+            2: 5,
+            3: 7,
+            4: 9,
+            5: 11,
+            6: 13,
+            7: 15
+        }
+        self.itens_hoje= {
+            'to evaluate': [],
+            'evaluated': []
+        }
+
+    def start_day(self):
+        self.itens_hoje['to evaluate'] = list(range(1, self.n_itens_dias[self.dia_atual]+1))
 
     def load_textures(self):
         self.textures = {}
