@@ -2,43 +2,67 @@ import pyray as rl
 from pyray import Vector3, Vector2
 import math
 import asyncio
-import random
 import time
+import sys
+
+IS_WEB = sys.platform == "emscripten"
 
 # ---------------------------------------------------------------------------
-# VIRTUAL RESOLUTION  (the game always renders at this size, then is scaled)
+# RENDER RESOLUTION
 # ---------------------------------------------------------------------------
-VIRTUAL_W = 470
-VIRTUAL_H = 360
+VIRTUAL_W = 960 * 0.5
+VIRTUAL_H = 720 * 0.5
+
+# ---------------------------------------------------------------------------
+# SCENE CONSTANTS
+# ---------------------------------------------------------------------------
+TABLE_SCALE  = 1.0
+TABLE_POS    = Vector3(0, 0, 0)
+
+OBJECT_SIZE  = 0.15
+OBJECT_Y     = 0.60
+OBJECT_POS   = Vector3(0, OBJECT_Y + OBJECT_SIZE * 0.5, 0.0)
+
+CAM_POS    = Vector3(0.0, 0.8, 0.7)
+CAM_TARGET = Vector3(0, 0.68, 0.0)
+
+_OBJECT_RADIUS = OBJECT_SIZE * 0.866
+
+# ---------------------------------------------------------------------------
+# ARCBALL MATH HELPERS
+# ---------------------------------------------------------------------------
+def _norm3(x, y, z):
+    d = math.sqrt(x*x + y*y + z*z)
+    return (x/d, y/d, z/d) if d > 1e-8 else (0.0, 0.0, 1.0)
+
+def _screen_to_virtual(pos: Vector2, dst: rl.Rectangle) -> Vector2:
+    if dst.width == 0 or dst.height == 0:
+        return pos
+    return Vector2(
+        (pos.x - dst.x) / dst.width  * VIRTUAL_W,
+        (pos.y - dst.y) / dst.height * VIRTUAL_H,
+    )
 
 # ---------------------------------------------------------------------------
 # GAME STATES
 # ---------------------------------------------------------------------------
 class State:
-    MENU     = "menu"
-    GAMEPLAY = "gameplay"
-    PAUSE    = "pause"
+    MENU    = "menu"
+    INSPECT = "inspect"
+    PAUSE   = "pause"
 
 # ---------------------------------------------------------------------------
 # TRANSITION MANAGER
 # ---------------------------------------------------------------------------
 class Transition:
-    """Handles fade-to-black animated transitions between states.
-
-    Usage:
-        transition.start(State.GAMEPLAY)   # kicks off a fade-out → swap → fade-in
-        transition.update(dt)              # call every frame
-        transition.draw()                  # draws the black overlay
-        transition.done                    # True once fully faded in again
-    """
-    SPEED = 2.5          # fade units per second (0-1 range)
+    SPEED = 2.5
 
     def __init__(self):
         self.active       = False
-        self.alpha        = 0.0          # 0 = transparent, 1 = fully black
-        self._fading_out  = True         # True = going to black, False = coming back
+        self.alpha        = 0.0
+        self._fading_out  = True
         self.target_state = None
-        self.done         = False        # pulses True for one frame when complete
+        self.done         = False
 
     def start(self, target_state: str):
         if self.active:
@@ -50,18 +74,14 @@ class Transition:
         self.done         = False
 
     def update(self, dt: float) -> str | None:
-        """Returns the new state name the moment the screen is fully black,
-        so the caller can swap state exactly then. Returns None otherwise."""
         self.done = False
         if not self.active:
             return None
-
         if self._fading_out:
             self.alpha += self.SPEED * dt
             if self.alpha >= 1.0:
-                self.alpha      = 1.0
+                self.alpha       = 1.0
                 self._fading_out = False
-                # Signal caller to swap state NOW (screen is black)
                 return self.target_state
         else:
             self.alpha -= self.SPEED * dt
@@ -69,434 +89,474 @@ class Transition:
                 self.alpha  = 0.0
                 self.active = False
                 self.done   = True
-
         return None
 
     def draw(self):
         if not self.active and self.alpha == 0.0:
             return
         a = int(self.alpha * 255)
-        rl.draw_rectangle(0, 0, VIRTUAL_W, VIRTUAL_H, rl.Color(0, 0, 0, a))
+        rl.draw_rectangle(0, 0, rl.get_screen_width(), rl.get_screen_height(),
+                          rl.Color(0, 0, 0, a))
+
+_dx, _dy, _dz = (CAM_TARGET.x - CAM_POS.x,
+                 CAM_TARGET.y - CAM_POS.y,
+                 CAM_TARGET.z - CAM_POS.z)
+_dl = math.sqrt(_dx*_dx + _dy*_dy + _dz*_dz) or 1.0
+_INIT_CAM_YAW   = math.atan2(_dx / _dl, _dz / _dl)
+_INIT_CAM_PITCH = math.asin(_dy / _dl)
 
 # ---------------------------------------------------------------------------
-# HELPERS
+# SCENE STATE
 # ---------------------------------------------------------------------------
-def draw_grid(size=20, spacing=1.0):
-    for i in range(-size, size + 1):
-        rl.draw_line_3d(Vector3(i * spacing, 0, -size * spacing),
-                        Vector3(i * spacing, 0,  size * spacing), rl.GRAY)
-        rl.draw_line_3d(Vector3(-size * spacing, 0, i * spacing),
-                        Vector3( size * spacing, 0, i * spacing), rl.GRAY)
-
-def check_collision(box1, box2):
-    return (
-        box1["min"].x <= box2["max"].x and box1["max"].x >= box2["min"].x and
-        box1["min"].y <= box2["max"].y and box1["max"].y >= box2["min"].y and
-        box1["min"].z <= box2["max"].z and box1["max"].z >= box2["min"].z
-    )
-
-def make_box(center, size):
+def make_scene_state() -> dict:
     return {
-        "min": Vector3(center.x - size.x/2, center.y - size.y/2, center.z - size.z/2),
-        "max": Vector3(center.x + size.x/2, center.y + size.y/2, center.z + size.z/2),
-    }
-
-def normalize_v3(v: Vector3) -> Vector3:
-    d = math.sqrt(v.x**2 + v.y**2 + v.z**2)
-    if d == 0:
-        return Vector3(0, 0, 0)
-    return Vector3(v.x/d, v.y/d, v.z/d)
-
-# ---------------------------------------------------------------------------
-# GAME DATA  (plain dict, easy to reset)
-# ---------------------------------------------------------------------------
-def make_game_state():
-    enemies = []
-    for _ in range(3):
-        enemies.append({
-            "pos":      Vector3(random.uniform(-10, 10), 1, random.uniform(-10, 10)),
-            "dir":      random.uniform(0, math.tau),
-            "speed":    0.05,
-            "cooldown": time.time() + random.uniform(1, 3),
-        })
-    return {
-        "player_pos":        Vector3(0, 1, 0),
-        "player_size":       Vector3(1, 2, 1),
-        "player_speed":      0.2,
-        "player_vel_y":      0.0,
-        "on_ground":         True,
-        "lives":             5,
-        "invulnerable_until":0.0,
-        "camera_pitch":      -0.3,
-        "camera_yaw":        0.0,
-        "third_person":      False,
-        "camera_distance":   6.0,
-        "sword_rotation_x":  0.0,
-        "sword_rotation_y":  0.0,
-        "enemies":           enemies,
-        "projectiles":       [],
+        "object_transform": rl.matrix_identity(),
+        "dragging":   False,
+        "drag_dir":   None,
+        "spin_axis":  (0.0, 1.0, 0.0),
+        "spin_angle": 0.0,
+        "debug":     False,
+        "cam_yaw":   _INIT_CAM_YAW,
+        "cam_pitch": _INIT_CAM_PITCH,
+        "cam_pos":   Vector3(CAM_POS.x, CAM_POS.y, CAM_POS.z),
     }
 
 # ---------------------------------------------------------------------------
 # UPDATE
 # ---------------------------------------------------------------------------
-def update_gameplay(gs: dict, camera: rl.Camera3D, dt: float):
-    now = time.time()
+def update_inspect(gs: dict, camera: rl.Camera3D, dt: float):
+    if rl.is_key_pressed(rl.KEY_F1):
+        gs["debug"] = not gs["debug"]
+        if gs["debug"]:
+            rl.disable_cursor()
+        else:
+            rl.enable_cursor()
 
-    # --- Camera toggle ---
-    if rl.is_key_pressed(rl.KEY_F5):
-        gs["third_person"] = not gs["third_person"]
-
-    mouse_delta = rl.get_mouse_delta()
-
-    # --- Sword / camera rotation ---
-    if rl.is_mouse_button_down(rl.MOUSE_BUTTON_RIGHT):
-        gs["sword_rotation_y"] -= mouse_delta.x * 0.01
-        gs["sword_rotation_x"] -= mouse_delta.y * 0.01
+    if gs["debug"]:
+        _update_debug_camera(gs, camera, dt)
     else:
-        gs["camera_yaw"]   -= mouse_delta.x * 0.003
-        gs["camera_pitch"] -= mouse_delta.y * 0.003
-    gs["camera_pitch"] = max(-1.2, min(1.2, gs["camera_pitch"]))
+        _update_object(gs, camera)
 
-    yaw, pitch = gs["camera_yaw"], gs["camera_pitch"]
-    dir_x = math.sin(yaw) * math.cos(pitch)
-    dir_y = math.sin(pitch)
-    dir_z = math.cos(yaw) * math.cos(pitch)
-    forward = Vector3(dir_x, dir_y, dir_z)
-    right   = Vector3(math.cos(yaw), 0, -math.sin(yaw))
 
-    # Store for draw step
-    gs["_dir"]     = (dir_x, dir_y, dir_z)
-    gs["_forward"] = forward
-    gs["_right"]   = right
+def _arcball_point(ray, center: Vector3, radius: float):
+    ox = center.x - ray.position.x
+    oy = center.y - ray.position.y
+    oz = center.z - ray.position.z
+    dx, dy, dz = ray.direction.x, ray.direction.y, ray.direction.z
 
-    # --- Player movement ---
-    move = Vector3(0, 0, 0)
-    if rl.is_key_down(rl.KEY_W): move.x += forward.x; move.z += forward.z
-    if rl.is_key_down(rl.KEY_S): move.x -= forward.x; move.z -= forward.z
-    if rl.is_key_down(rl.KEY_A): move.x += right.x;   move.z += right.z
-    if rl.is_key_down(rl.KEY_D): move.x -= right.x;   move.z -= right.z
+    tca = ox*dx + oy*dy + oz*dz
+    d2  = (ox*ox + oy*oy + oz*oz) - tca*tca
+    r2  = radius * radius
+    on_sphere = d2 <= r2
 
-    length = math.sqrt(move.x**2 + move.z**2)
-    if length:
-        move.x /= length
-        move.z /= length
+    t = (tca - math.sqrt(r2 - d2)) if on_sphere else tca
+    px = ray.position.x + dx*t
+    py = ray.position.y + dy*t
+    pz = ray.position.z + dz*t
+    return _norm3(px - center.x, py - center.y, pz - center.z), on_sphere
 
-    gs["player_pos"].x += move.x * gs["player_speed"]
-    gs["player_pos"].z += move.z * gs["player_speed"]
 
-    # --- Jump ---
-    if rl.is_key_pressed(rl.KEY_SPACE) and gs["on_ground"]:
-        gs["player_vel_y"] = 0.35
-        gs["on_ground"]    = False
+def _update_object(gs: dict, camera: rl.Camera3D):
+    dst  = get_scaled_rect()
+    vpos = _screen_to_virtual(rl.get_mouse_position(), dst)
+    ray  = rl.get_screen_to_world_ray_ex(vpos, camera, VIRTUAL_W, VIRTUAL_H)
 
-    gs["player_vel_y"] -= 0.02
-    gs["player_pos"].y += gs["player_vel_y"]
-    if gs["player_pos"].y <= 1:
-        gs["player_pos"].y = 1
-        gs["player_vel_y"] = 0
-        gs["on_ground"]    = True
+    p1, on_object = _arcball_point(ray, OBJECT_POS, _OBJECT_RADIUS)
 
-    # --- Enemies ---
-    for enemy in gs["enemies"]:
-        enemy["pos"].x += math.cos(enemy["dir"]) * enemy["speed"]
-        enemy["pos"].z += math.sin(enemy["dir"]) * enemy["speed"]
-        if abs(enemy["pos"].x) > 19 or abs(enemy["pos"].z) > 19:
-            enemy["dir"] += math.pi / 2
-        if now >= enemy["cooldown"]:
-            dp = Vector3(gs["player_pos"].x - enemy["pos"].x,
-                         0,
-                         gs["player_pos"].z - enemy["pos"].z)
-            d = math.sqrt(dp.x**2 + dp.z**2)
-            if d:
-                dp.x /= d; dp.z /= d
-            gs["projectiles"].append({
-                "pos":   Vector3(enemy["pos"].x, 1.5, enemy["pos"].z),
-                "vel":   Vector3(dp.x * 0.3, 0, dp.z * 0.3),
-                "spawn": now,
-            })
-            enemy["cooldown"] = now + random.uniform(2, 5)
+    if rl.is_mouse_button_pressed(rl.MOUSE_BUTTON_LEFT) and on_object:
+        gs["dragging"]   = True
+        gs["spin_angle"] = 0.0
+        gs["drag_dir"]   = p1
 
-    # --- Projectiles ---
-    live = []
-    for p in gs["projectiles"]:
-        p["pos"].x += p["vel"].x
-        p["pos"].y += p["vel"].y
-        p["pos"].z += p["vel"].z
-        if now - p["spawn"] < 5:
-            live.append(p)
-    gs["projectiles"] = live
+    if rl.is_mouse_button_released(rl.MOUSE_BUTTON_LEFT):
+        gs["dragging"] = False
 
-    # --- Collisions ---
-    player_box = make_box(gs["player_pos"], gs["player_size"])
-    if now > gs["invulnerable_until"]:
-        for enemy in gs["enemies"]:
-            if check_collision(player_box, make_box(enemy["pos"], Vector3(1, 2, 1))):
-                gs["lives"] -= 1
-                gs["invulnerable_until"] = now + 3
-                break
-        live2 = []
-        for p in gs["projectiles"]:
-            if check_collision(player_box, make_box(p["pos"], Vector3(0.5, 0.5, 0.5))):
-                gs["lives"] -= 1
-                gs["invulnerable_until"] = now + 3
-            else:
-                live2.append(p)
-        gs["projectiles"] = live2
+    if gs["dragging"] and rl.is_mouse_button_down(rl.MOUSE_BUTTON_LEFT):
+        p0 = gs["drag_dir"]
+        if p0 is not None:
+            ax = p0[1]*p1[2] - p0[2]*p1[1]
+            ay = p0[2]*p1[0] - p0[0]*p1[2]
+            az = p0[0]*p1[1] - p0[1]*p1[0]
+            axis_len = math.sqrt(ax*ax + ay*ay + az*az)
 
-    # --- Update camera struct ---
-    pp    = gs["player_pos"]
-    dx, dy, dz = gs["_dir"]
-    if gs["third_person"]:
-        dist = gs["camera_distance"]
-        camera.position = Vector3(pp.x - dx*dist, pp.y + 2 - dy*dist, pp.z - dz*dist)
+            if axis_len > 1e-6:
+                dot   = max(-1.0, min(1.0, p0[0]*p1[0] + p0[1]*p1[1] + p0[2]*p1[2]))
+                angle = math.acos(dot)
+                na    = (ax/axis_len, ay/axis_len, az/axis_len)
+                rot   = rl.matrix_rotate(Vector3(*na), angle)
+                gs["object_transform"] = rl.matrix_multiply(gs["object_transform"], rot)
+                gs["spin_axis"]  = na
+                gs["spin_angle"] = angle
+
+            gs["drag_dir"] = p1
     else:
-        camera.position = Vector3(pp.x, pp.y + 1.5, pp.z)
-    camera.target = Vector3(pp.x + dx, pp.y + 1.5 + dy, pp.z + dz)
+        if gs["spin_angle"] > 1e-5:
+            rot = rl.matrix_rotate(Vector3(*gs["spin_axis"]), gs["spin_angle"])
+            gs["object_transform"] = rl.matrix_multiply(gs["object_transform"], rot)
+        gs["spin_angle"] *= 0.88
+
+
+def _update_debug_camera(gs: dict, camera: rl.Camera3D, dt: float):
+    delta = rl.get_mouse_delta()
+    gs["cam_yaw"]   -= delta.x * 0.003
+    gs["cam_pitch"] -= delta.y * 0.003
+    gs["cam_pitch"]  = max(-1.2, min(1.2, gs["cam_pitch"]))
+
+    yaw, pitch = gs["cam_yaw"], gs["cam_pitch"]
+    dx = math.sin(yaw) * math.cos(pitch)
+    dy = math.sin(pitch)
+    dz = math.cos(yaw) * math.cos(pitch)
+    forward = Vector3(dx, dy, dz)
+    right   = Vector3(math.cos(yaw), 0.0, -math.sin(yaw))
+
+    speed = 3.0 * dt
+    p = gs["cam_pos"]
+    if rl.is_key_down(rl.KEY_W): p.x += forward.x*speed; p.y += forward.y*speed; p.z += forward.z*speed
+    if rl.is_key_down(rl.KEY_S): p.x -= forward.x*speed; p.y -= forward.y*speed; p.z -= forward.z*speed
+    if rl.is_key_down(rl.KEY_A): p.x += right.x*speed;   p.z += right.z*speed
+    if rl.is_key_down(rl.KEY_D): p.x -= right.x*speed;   p.z -= right.z*speed
+
+    camera.position = Vector3(p.x, p.y, p.z)
+    camera.target   = Vector3(p.x + dx, p.y + dy, p.z + dz)
 
 # ---------------------------------------------------------------------------
-# DRAW  (always called inside begin_texture_mode / end_texture_mode)
+# DRAW FUNCTIONS
 # ---------------------------------------------------------------------------
-def draw_menu(now: float):
-    """Menu screen drawn into the virtual render texture."""
-    rl.clear_background(rl.Color(15, 15, 25, 255))
+def draw_menu_bg_into_texture(menu_bg_tex):
+    """Fills the render texture with outside.png (cover-fit). Shader will paint this."""
+    rl.clear_background(rl.BLACK)
+    tw, th = menu_bg_tex.width, menu_bg_tex.height
+    if tw == 0 or th == 0:
+        return
+    tex_aspect = tw / th
+    virt_aspect = VIRTUAL_W / VIRTUAL_H if VIRTUAL_H > 0 else 1.0
+    if virt_aspect > tex_aspect:
+        dw = VIRTUAL_W
+        dh = VIRTUAL_W / tex_aspect
+    else:
+        dh = VIRTUAL_H
+        dw = VIRTUAL_H * tex_aspect
+    dx = (VIRTUAL_W - dw) * 0.5
+    dy = (VIRTUAL_H - dh) * 0.5
+    rl.draw_texture_pro(
+        menu_bg_tex,
+        rl.Rectangle(0, 0, tw, th),
+        rl.Rectangle(dx, dy, dw, dh),
+        Vector2(0, 0), 0.0, rl.WHITE,
+    )
 
-    # Animated title
-    t = now * 1.5
+
+def draw_menu(now: float, dst: rl.Rectangle, font: rl.Font):
+    """Menu text overlays — drawn on screen after the shader blit."""
+    sw, sh = rl.get_screen_width(), rl.get_screen_height()
+    cx = sw // 2
+
+    def _measure(text: bytes, size: float) -> int:
+        return int(rl.measure_text_ex(font, text, size, 1).x)
+
+    def _draw(text: bytes, x: int, y: int, size: float, color):
+        rl.draw_text_ex(font, text, rl.Vector2(float(x), float(y)), size, 1, color)
+
+    # Gradient-like dark band at the top so title pops
+    rl.draw_rectangle(0, 0, sw, sh, rl.Color(0, 0, 0, 80))
+    rl.draw_rectangle_gradient_v(0, 0, sw, sh // 3, rl.Color(0, 0, 0, 160), rl.Color(0, 0, 0, 0))
+    rl.draw_rectangle_gradient_v(0, sh - sh // 4, sw, sh // 4, rl.Color(0, 0, 0, 0), rl.Color(0, 0, 0, 180))
+
+    t = now * 1.2
     offset_y = int(math.sin(t) * 4)
 
-    title = b"Cover-Jam 2026"
-    tw = rl.measure_text(title, 52)
-    rl.draw_text(title, VIRTUAL_W//2 - tw//2, 90 + offset_y, 52, rl.Color(255, 80, 60, 255))
+    # --- Title ---
+    title_size = float(max(58, sh // 10))
+    title = b"7 Dias de Alfandegario"
+    tw = _measure(title, title_size)
+    ty = int(sh * 0.48) + offset_y
+    # Subtle shadow
+    _draw(title, cx - tw // 2 + 2, ty + 2, title_size, rl.Color(0, 0, 0, 120))
+    _draw(title, cx - tw // 2, ty, title_size, rl.Color(220, 175, 80, 255))
 
-    # Subtitle
-    sub = b"Don't judge a book by its cover"
-    sw = rl.measure_text(sub, 18)
-    rl.draw_text(sub, VIRTUAL_W//2 - sw//2, 155, 18, rl.Color(180, 180, 200, 220))
+    # --- Subtitle ---
+    sub_size = float(max(12, sh // 20))
+    sub = b"Bem vindo ao seu novo trabalho! Cuidado!"
+    subw = _measure(sub, sub_size)
+    _draw(sub, cx - subw // 2 + 2, int(sh * 0.59) + 2, sub_size, rl.Color(0, 0, 0, 220))
+    _draw(sub, cx - subw // 2, int(sh * 0.59), sub_size, rl.Color(210, 165, 110, 220))
 
-    # Pulsing ENTER prompt
-    pulse = int((math.sin(now * 3) * 0.5 + 0.5) * 200 + 55)
-    prompt = b"Press ENTER to Play"
-    pw = rl.measure_text(prompt, 22)
-    rl.draw_text(prompt, VIRTUAL_W//2 - pw//2, 230, 22, rl.Color(255, 220, 80, pulse))
+    # --- Divider line ---
+    line_y = int(sh * 0.64)
+    line_hw = sw // 6
+    # rl.draw_line_ex((cx - line_hw, line_y), (cx + line_hw, line_y), 10, rl.Color(180, 140, 60, 120))
 
-    # Controls hint
-    hints = b"[F] Fullscreen   [F5] Toggle camera"
-    hw = rl.measure_text(hints, 14)
-    rl.draw_text(hints, VIRTUAL_W//2 - hw//2, VIRTUAL_H - 30, 14, rl.Color(120, 120, 140, 200))
+    # --- Prompt (pulsing) ---
+    pulse = int((math.sin(now * 2.5) * 0.5 + 0.5) * 200 + 55)
+    prompt_size = float(max(14, sh // 20))
+    prompt = b"Aperte ENTER para jogar"
+    pw = _measure(prompt, prompt_size)
+    _draw(prompt, cx - pw // 2, int(sh * 0.65), prompt_size, rl.Color(240, 200, 80, pulse))
 
+def draw_inspect_3d(gs: dict, camera: rl.Camera3D, table_model, object_model, bg_tex):
+    """Draws only the 3D scene into the render texture (no overlays)."""
+    rl.clear_background(rl.BLACK)
 
-def draw_gameplay(gs: dict, camera: rl.Camera3D, model, enemy_model, cube_pos):
-    now = time.time()
-    rl.clear_background(rl.RAYWHITE)
+    rl.draw_texture_pro(
+        bg_tex,
+        rl.Rectangle(0, 0, bg_tex.width, bg_tex.height),
+        rl.Rectangle(0, 0, VIRTUAL_W, VIRTUAL_H),
+        Vector2(0, 0), 0.0, rl.GRAY,
+    )
 
     rl.begin_mode_3d(camera)
-    draw_grid(20, 1.0)
-
-    # Player (blink when invulnerable)
-    blink = (now * 10) % 2 < 1
-    if now < gs["invulnerable_until"]:
-        if blink:
-            rl.draw_cube(gs["player_pos"], 1, 2, 1, rl.BLUE)
-    else:
-        rl.draw_cube(gs["player_pos"], 1, 2, 1, rl.BLUE)
-
-    for enemy in gs["enemies"]:
-        rl.draw_model(enemy_model, enemy["pos"], 1.0, rl.WHITE)
-
-    for p in gs["projectiles"]:
-        rl.draw_sphere(p["pos"], 0.3, rl.ORANGE)
-
-    # Sword
-    model.transform = rl.matrix_multiply(
-        rl.matrix_scale(1.0, 1.0, 1.0),
-        rl.matrix_rotate_xyz(Vector3(gs["sword_rotation_x"], gs["sword_rotation_y"], 0.0))
-    )
-    rl.draw_model(model, cube_pos, 1.0, rl.WHITE)
-
+    rl.draw_model(table_model, TABLE_POS, TABLE_SCALE, rl.WHITE)
+    object_model.transform = gs["object_transform"]
+    rl.draw_model(object_model, OBJECT_POS, 1.0, rl.Color(255, 255, 255, 255))
     rl.end_mode_3d()
 
-    # HUD — lives
-    for i in range(gs["lives"]):
-        rl.draw_rectangle(10 + i * 28, 10, 22, 22, rl.RED)
 
-    if now < gs["invulnerable_until"]:
-        rl.draw_text(b"INVULNERAVEL", 10, 40, 20, rl.GOLD)
+def draw_pause(font: rl.Font):
+    """Pause overlay — solid black screen with centered PAUSED text."""
+    sw, sh = rl.get_screen_width(), rl.get_screen_height()
+    cx, cy = sw // 2, sh // 2
+    rl.draw_rectangle(0, 0, sw, sh, rl.BLACK)
 
-    rl.draw_text(b"[P] Pause  [F] Fullscreen  [F5] Camera  [RMB] Sword", 10, VIRTUAL_H - 22, 13, rl.GRAY)
+    def _measure(text: bytes, size: float) -> int:
+        return int(rl.measure_text_ex(font, text, size, 1).x)
 
+    def _draw(text: bytes, x: int, y: int, size: float, color):
+        rl.draw_text_ex(font, text, rl.Vector2(float(x), float(y)), size, 1, color)
 
-def draw_pause(gs: dict):
-    # Simple semi-transparent dim over the frozen gameplay
-    rl.draw_rectangle(0, 0, VIRTUAL_W, VIRTUAL_H, rl.Color(0, 0, 0, 120))
+    title = b"PAUSADO"
+    tw = _measure(title, 80)
+    _draw(title, cx - tw // 2, cy - 24, 80, rl.WHITE)
 
-    title = b"PAUSED"
-    tw = rl.measure_text(title, 40)
-    rl.draw_text(title, VIRTUAL_W//2 - tw//2, VIRTUAL_H//2 - 40, 40, rl.WHITE)
-
-    hint1 = b"[P] Resume"
-    h1w = rl.measure_text(hint1, 18)
-    rl.draw_text(hint1, VIRTUAL_W//2 - h1w//2, VIRTUAL_H//2 + 10, 18, rl.Color(200, 200, 200, 230))
-
-    hint2 = b"[M] Main Menu"
-    h2w = rl.measure_text(hint2, 18)
-    rl.draw_text(hint2, VIRTUAL_W//2 - h2w//2, VIRTUAL_H//2 + 34, 18, rl.Color(200, 200, 200, 230))
+    for i, text in enumerate((b"[P] Resumir", b"[M] Menu Inicial")):
+        w = _measure(text, 40)
+        _draw(text, cx - w // 2, cy + 62 + i * 38, 40, rl.Color(180, 180, 180, 200))
 
 # ---------------------------------------------------------------------------
-# SCALE RENDER TEXTURE TO SCREEN  (letterbox + pillarbox — always centred)
+# RENDER-TEXTURE SCALING (letterbox / pillarbox)
 # ---------------------------------------------------------------------------
+
+def draw_inspect_hud(gs: dict, dst: rl.Rectangle):
+    """Inspect HUD — drawn directly on screen after the shader blit."""
+    bx = int(dst.x) + 8
+    by = int(dst.y + dst.height) - 20
+    if gs.get("debug"):
+        rl.draw_text(b"DEBUG CAM  [WASD] Move  [Mouse] Look  [F1] Exit",
+                     bx, by, 11, rl.Color(80, 220, 80, 220))
+    else:
+        rl.draw_text(
+            b"[LMB] Rotate   [P] Pause   [F] Fullscreen   [F1] Debug cam   [K] Painting",
+            bx, by, 11, rl.Color(120, 100, 65, 190))
+
 def get_scaled_rect() -> rl.Rectangle:
     sw, sh = rl.get_screen_width(), rl.get_screen_height()
-    scale  = min(sw / VIRTUAL_W, sh / VIRTUAL_H)   # fit inside the window
+    scale  = min(sw / VIRTUAL_W, sh / VIRTUAL_H)
     dw, dh = VIRTUAL_W * scale, VIRTUAL_H * scale
-    ox     = (sw - dw) / 2   # centre horizontally
-    oy     = (sh - dh) / 2   # centre vertically
-    return rl.Rectangle(ox, oy, dw, dh)
+    return rl.Rectangle((sw - dw) / 2, (sh - dh) / 2, dw, dh)
+
+# ---------------------------------------------------------------------------
+# SHADER HELPER
+# --------------------------------------------------------------
+def _set_shader_resolution(shader, loc: int, w: float, h: float):
+    """Push the render-texture resolution into the painting shader."""
+    res = rl.ffi.new("float[2]", [w, h])
+    rl.set_shader_value(shader, loc, res, rl.SHADER_UNIFORM_VEC2)
 
 # ---------------------------------------------------------------------------
 # MAIN LOOP
 # ---------------------------------------------------------------------------
 async def main():
-    rl.set_config_flags(rl.FLAG_WINDOW_RESIZABLE)
-    rl.init_window(1000, 700, b"Cube Dodge 3D")
-    rl.set_target_fps(60)
-    rl.disable_cursor()
+    global VIRTUAL_W, VIRTUAL_H
 
-    # --- Windowed size (saved so fullscreen can restore it) ---
+    rl.set_config_flags(rl.FLAG_WINDOW_RESIZABLE)
+    rl.init_window(1000, 700, b"The Enigma")
+    rl.set_target_fps(60)
+    rl.enable_cursor()
+
     windowed_w, windowed_h = 1000, 700
 
-    # --- Render texture (virtual canvas) ---
+    VIRTUAL_W, VIRTUAL_H = rl.get_screen_width(), rl.get_screen_height()
     render_tex = rl.load_render_texture(VIRTUAL_W, VIRTUAL_H)
     rl.set_texture_filter(render_tex.texture, rl.TEXTURE_FILTER_BILINEAR)
-
-    # Source rect for the render texture (Y is flipped in OpenGL)
     src_rect = rl.Rectangle(0, 0, VIRTUAL_W, -VIRTUAL_H)
 
-    # --- Models & shared assets ---
-    model       = rl.load_model(b"sword_2handed.gltf")
-    enemy_model = rl.load_model(b"Mage.glb")
-    cube_pos    = Vector3(0.0, 0.5, 0.0)
+    # --- Models & textures ---
+    table_model   = rl.load_model(b"chinese_tea_table_2k.gltf")
+    object_model  = rl.load_model(b"mantel_clock_01_1k.gltf")
+    bg_texture    = rl.load_texture(b"wizard_room.jpg")
+    rl.set_texture_filter(bg_texture, rl.TEXTURE_FILTER_BILINEAR)
+    menu_bg_tex   = rl.load_texture(b"outside2.jpg")
+    rl.set_texture_filter(menu_bg_tex, rl.TEXTURE_FILTER_BILINEAR)
+    tropiland_font = rl.load_font_ex(b"TropiLand.ttf", 128, None, 0)
+    rl.set_texture_filter(tropiland_font.texture, rl.TEXTURE_FILTER_BILINEAR)
+
+    # --- Painting shader (Kuwahara) ---
+    # WebGL (pygbag/Emscripten) needs GLSL ES 1.0; desktop uses GLSL 3.3.
+    _fs = b"painting_web.fs" if IS_WEB else b"painting.fs"
+    painting_shader  = rl.load_shader(b"", _fs)
+    shader_res_loc   = rl.get_shader_location(painting_shader, b"resolution")
+    painting_enabled = True                          # [K] toggles this
+    _set_shader_resolution(painting_shader, shader_res_loc, VIRTUAL_W, VIRTUAL_H)
 
     # --- Camera ---
-    camera       = rl.Camera3D()
-    camera.up    = Vector3(0, 1, 0)
-    camera.fovy  = 90
+    camera            = rl.Camera3D()
+    camera.position   = CAM_POS
+    camera.target     = CAM_TARGET
+    camera.up         = Vector3(0, 1, 0)
+    camera.fovy       = 55.0
     camera.projection = rl.CAMERA_PERSPECTIVE
 
     # --- State machine ---
-    current_state = State.MENU
-    prev_gameplay_drawn = False  # lets pause show a frozen gameplay background
-
-    # --- Game data ---
-    gs: dict = {}
-
-    # --- Transition ---
-    transition = Transition()
-
-    prev_time = time.time()
+    current_state      = State.MENU
+    prev_inspect_drawn = False
+    gs: dict           = {}
+    transition         = Transition()
+    prev_time          = time.time()
 
     while not rl.window_should_close():
         now = time.time()
         dt  = now - prev_time
         prev_time = now
 
-        # ------------------------------------------------------------------ #
-        #  GLOBAL HOTKEYS  (active in all states)                             #
-        # ------------------------------------------------------------------ #
+        # -------------------------------------------------------------- #
+        #  RENDER TEXTURE RESIZE                                           #
+        # -------------------------------------------------------------- #
+        sw, sh = rl.get_screen_width(), rl.get_screen_height()
+        if sw > 0 and sh > 0 and (sw != VIRTUAL_W or sh != VIRTUAL_H):
+            rl.unload_render_texture(render_tex)
+            VIRTUAL_W, VIRTUAL_H = sw, sh
+            render_tex = rl.load_render_texture(VIRTUAL_W, VIRTUAL_H)
+            rl.set_texture_filter(render_tex.texture, rl.TEXTURE_FILTER_BILINEAR)
+            src_rect = rl.Rectangle(0, 0, VIRTUAL_W, -VIRTUAL_H)
+            # Keep shader resolution uniform in sync
+            _set_shader_resolution(painting_shader, shader_res_loc, VIRTUAL_W, VIRTUAL_H)
+
+        # -------------------------------------------------------------- #
+        #  FULLSCREEN TOGGLE                                               #
+        # -------------------------------------------------------------- #
         if rl.is_key_pressed(rl.KEY_F):
             if rl.is_window_fullscreen():
-                # Leaving fullscreen — restore saved windowed size
                 rl.toggle_fullscreen()
                 rl.set_window_size(windowed_w, windowed_h)
             else:
-                # Entering fullscreen — save current size, resize to monitor
                 windowed_w = rl.get_screen_width()
                 windowed_h = rl.get_screen_height()
-                monitor = rl.get_current_monitor()
-                mon_w    = rl.get_monitor_width(monitor)
-                mon_h    = rl.get_monitor_height(monitor)
-                rl.set_window_size(mon_w, mon_h)
+                monitor   = rl.get_current_monitor()
+                rl.set_window_size(rl.get_monitor_width(monitor),
+                                   rl.get_monitor_height(monitor))
                 rl.toggle_fullscreen()
 
-        # ------------------------------------------------------------------ #
-        #  TRANSITION UPDATE  (swap state at blackout peak)                   #
-        # ------------------------------------------------------------------ #
+        # -------------------------------------------------------------- #
+        #  PAINTING SHADER TOGGLE                                          #
+        # -------------------------------------------------------------- #
+        if rl.is_key_pressed(rl.KEY_K):
+            painting_enabled = not painting_enabled
+
+        # -------------------------------------------------------------- #
+        #  TRANSITION UPDATE                                               #
+        # -------------------------------------------------------------- #
         new_state = transition.update(dt)
         if new_state is not None:
             current_state = new_state
-            # Re-enable/disable cursor as needed
-            if current_state == State.GAMEPLAY:
-                rl.disable_cursor()
-            else:
-                rl.enable_cursor()
 
-        # ------------------------------------------------------------------ #
-        #  INPUT / UPDATE  (only when not mid-transition)                     #
-        # ------------------------------------------------------------------ #
+        # -------------------------------------------------------------- #
+        #  INPUT / UPDATE                                                  #
+        # -------------------------------------------------------------- #
         if not transition.active or not transition._fading_out:
             if current_state == State.MENU:
                 if rl.is_key_pressed(rl.KEY_ENTER):
-                    gs = make_game_state()
-                    transition.start(State.GAMEPLAY)
+                    gs = make_scene_state()
+                    transition.start(State.INSPECT)
 
-            elif current_state == State.GAMEPLAY:
+            elif current_state == State.INSPECT:
                 if rl.is_key_pressed(rl.KEY_P):
+                    if gs.get("debug"):
+                        gs["debug"] = False
+                        rl.enable_cursor()
                     transition.start(State.PAUSE)
                 else:
-                    update_gameplay(gs, camera, dt)
+                    update_inspect(gs, camera, dt)
 
             elif current_state == State.PAUSE:
                 if rl.is_key_pressed(rl.KEY_P):
-                    transition.start(State.GAMEPLAY)
+                    transition.start(State.INSPECT)
                 elif rl.is_key_pressed(rl.KEY_M):
                     transition.start(State.MENU)
 
-        # ------------------------------------------------------------------ #
-        #  DRAW INTO RENDER TEXTURE                                           #
-        # ------------------------------------------------------------------ #
+        # -------------------------------------------------------------- #
+        #  DRAW INTO RENDER TEXTURE  (3D scene only — no overlays)         #
+        # -------------------------------------------------------------- #
         rl.begin_texture_mode(render_tex)
 
         if current_state == State.MENU:
-            draw_menu(now)
+            draw_menu_bg_into_texture(menu_bg_tex)
 
-        elif current_state == State.GAMEPLAY:
-            draw_gameplay(gs, camera, model, enemy_model, cube_pos)
-            prev_gameplay_drawn = True
+        elif current_state == State.INSPECT:
+            draw_inspect_3d(gs, camera, table_model, object_model, bg_texture)
+            prev_inspect_drawn = True
 
         elif current_state == State.PAUSE:
-            # Draw the frozen gameplay underneath the pause overlay
-            if prev_gameplay_drawn:
-                draw_gameplay(gs, camera, model, enemy_model, cube_pos)
-            draw_pause(gs)
-
-        # Transition overlay (black fade)
-        transition.draw()
+            # Keep the 3D scene visible under the pause overlay
+            if prev_inspect_drawn:
+                draw_inspect_3d(gs, camera, table_model, object_model, bg_texture)
+            else:
+                rl.clear_background(rl.BLACK)
 
         rl.end_texture_mode()
 
-        # ------------------------------------------------------------------ #
-        #  BLIT RENDER TEXTURE → SCREEN  (scaled, letterboxed)               #
-        # ------------------------------------------------------------------ #
-        dst_rect = get_scaled_rect()
-
+        # -------------------------------------------------------------- #
+        #  BLIT RENDER TEXTURE → SCREEN  (with optional painting shader)  #
+        # -------------------------------------------------------------- #
         rl.begin_drawing()
-        rl.clear_background(rl.BLACK)   # letterbox / pillarbox bars
+        rl.clear_background(rl.BLACK)
+
+        dst = get_scaled_rect()
+
+        if painting_enabled:
+            rl.begin_shader_mode(painting_shader)
+
         rl.draw_texture_pro(
             render_tex.texture,
             src_rect,
-            dst_rect,
+            dst,
             Vector2(0, 0),
             0.0,
-            rl.WHITE
+            rl.WHITE,
         )
+
+        if painting_enabled:
+            rl.end_shader_mode()
+
+        # ---- Overlays (unaffected by the painting shader) ---------------
+        if current_state == State.MENU:
+            draw_menu(now, dst, tropiland_font)
+
+        elif current_state == State.INSPECT:
+            draw_inspect_hud(gs, dst)
+
+        elif current_state == State.PAUSE:
+            draw_pause(tropiland_font)
+            draw_inspect_hud(gs, dst)
+
+        # Transition fade drawn on top of everything
+        transition.draw()
+
+        # Shader toggle indicator
+        label = b"[K] Painting: ON " if painting_enabled else b"[K] Painting: OFF"
+        col   = rl.Color(220, 175, 70, 200) if painting_enabled else rl.Color(100, 90, 70, 140)
+        rl.draw_text(label, 8, 8, 11, col)
+
         rl.end_drawing()
 
         await asyncio.sleep(0)
 
-    # Cleanup
+    # --- Cleanup ---
+    rl.unload_shader(painting_shader)
     rl.unload_render_texture(render_tex)
-    rl.unload_model(model)
-    rl.unload_model(enemy_model)
+    rl.unload_model(table_model)
+    rl.unload_model(object_model)
+    rl.unload_texture(bg_texture)
+    rl.unload_texture(menu_bg_tex)
+    rl.unload_font(tropiland_font)
     rl.close_window()
 
 
