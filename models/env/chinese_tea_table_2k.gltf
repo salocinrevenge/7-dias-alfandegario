@@ -70,17 +70,17 @@
     {
       "mimeType": "image/jpeg",
       "name": "chinese_tea_table_nor_gl",
-      "uri": "textures/chinese_tea_table_nor_gl_2k.jpg"
+      "uri": "../../textures/chinese_tea_table_nor_gl_2k.jpg"
     },
     {
       "mimeType": "image/jpeg",
       "name": "chinese_tea_table_diff",
-      "uri": "textures/chinese_tea_table_diff_2k.jpg"
+      "uri": "../../textures/chinese_tea_table_diff_2k.jpg"
     },
     {
       "mimeType": "image/jpeg",
       "name": "chinese_tea_table_rough",
-      "uri": "textures/chinese_tea_table_arm_2k.jpg"
+      "uri": "../../textures/chinese_tea_table_arm_2k.jpg"
     }
   ],
   "accessors": [

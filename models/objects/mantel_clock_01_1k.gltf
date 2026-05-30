@@ -149,22 +149,22 @@
     {
       "mimeType": "image/jpeg",
       "name": "mantel_clock_01_nor_gl",
-      "uri": "textures/mantel_clock_01_nor_gl_1k.jpg"
+      "uri": "../../textures/mantel_clock_01_nor_gl_1k.jpg"
     },
     {
       "mimeType": "image/jpeg",
       "name": "mantel_clock_01_diff",
-      "uri": "textures/mantel_clock_01_diff_1k.jpg"
+      "uri": "../../textures/mantel_clock_01_diff_1k.jpg"
     },
     {
       "mimeType": "image/jpeg",
       "name": "mantel_clock_01_metal-mantel_clock_01_rough",
-      "uri": "textures/mantel_clock_01_arm_1k.jpg"
+      "uri": "../../textures/mantel_clock_01_arm_1k.jpg"
     },
     {
       "mimeType": "image/jpeg",
       "name": "mantel_clock_01_rough",
-      "uri": "textures/mantel_clock_01_arm_1k.jpg"
+      "uri": "../../textures/mantel_clock_01_arm_1k.jpg"
     }
   ],
   "accessors": [
