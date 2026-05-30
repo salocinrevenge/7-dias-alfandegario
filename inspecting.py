@@ -23,7 +23,7 @@ def draw_inspect_3d( gc: Game_context):
     rl.draw_model(gc.models["object"], gc.OBJECT_POS, 1.0, rl.Color(255, 255, 255, 255))
     rl.end_mode_3d()
 
-def update_inspect(gc: Game_context, dt: float, _update_debug_camera, _update_object):
+def update_inspect(gc: Game_context, dt: float):
     if rl.is_key_pressed(rl.KEY_F1):
         gc.gs["debug"] = not gc.gs["debug"]
         if gc.gs["debug"]:
@@ -32,6 +32,6 @@ def update_inspect(gc: Game_context, dt: float, _update_debug_camera, _update_ob
             rl.enable_cursor()
 
     if gc.gs["debug"]:
-        _update_debug_camera(gc, dt)
+        gc.player.update_debug_camera(dt)
     else:
-        _update_object(gc)
+        gc.player.update_object()

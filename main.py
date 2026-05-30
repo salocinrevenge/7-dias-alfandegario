@@ -9,117 +9,12 @@ from inspecting import draw_inspect_3d, update_inspect
 from menu import draw_menu, draw_menu_bg_into_texture
 from game_context import Game_context
 from state import State
-
-
-
-# ---------------------------------------------------------------------------
-# ARCBALL MATH HELPERS
-# ---------------------------------------------------------------------------
-def _norm3(x, y, z):
-    d = math.sqrt(x*x + y*y + z*z)
-    return (x/d, y/d, z/d) if d > 1e-8 else (0.0, 0.0, 1.0)
-
-def _screen_to_virtual(gc: Game_context, pos: Vector2, dst: rl.Rectangle) -> Vector2:
-    if dst.width == 0 or dst.height == 0:
-        return pos
-    return Vector2(
-        (pos.x - dst.x) / dst.width  * gc.VIRTUAL_W,
-        (pos.y - dst.y) / dst.height * gc.VIRTUAL_H,
-    )
-
-# ---------------------------------------------------------------------------
-# UPDATE
-# ---------------------------------------------------------------------------
-
-
-
-def _arcball_point(ray, center: Vector3, radius: float): # Given a ray from the camera through the mouse position, find the point on the arcball sphere (centered on the inspected object) that it intersects. Returns a normalized vector from the center to that point, and whether the ray is actually hitting the sphere or just grazing it.
-    ox = center.x - ray.position.x
-    oy = center.y - ray.position.y
-    oz = center.z - ray.position.z
-    dx, dy, dz = ray.direction.x, ray.direction.y, ray.direction.z
-
-    tca = ox*dx + oy*dy + oz*dz
-    d2  = (ox*ox + oy*oy + oz*oz) - tca*tca
-    r2  = radius * radius
-    on_sphere = d2 <= r2
-
-    t = (tca - math.sqrt(r2 - d2)) if on_sphere else tca
-    px = ray.position.x + dx*t
-    py = ray.position.y + dy*t
-    pz = ray.position.z + dz*t
-    return _norm3(px - center.x, py - center.y, pz - center.z), on_sphere
-
-
-def _update_object(gc: Game_context): # Mouse-driven arcball rotation for the inspected object.
-    dst  = get_scaled_rect(gc)
-    vpos = _screen_to_virtual(gc, rl.get_mouse_position(), dst)
-    ray  = rl.get_screen_to_world_ray_ex(vpos, gc.camera, gc.VIRTUAL_W, gc.VIRTUAL_H)
-
-    p1, on_object = _arcball_point(ray, gc.OBJECT_POS, gc._OBJECT_RADIUS)
-
-    if rl.is_mouse_button_pressed(rl.MOUSE_BUTTON_LEFT) and on_object:
-        gc.gs["dragging"]   = True
-        gc.gs["spin_angle"] = 0.0
-        gc.gs["drag_dir"]   = p1
-
-    if rl.is_mouse_button_released(rl.MOUSE_BUTTON_LEFT):
-        gc.gs["dragging"] = False
-
-    if gc.gs["dragging"] and rl.is_mouse_button_down(rl.MOUSE_BUTTON_LEFT):
-        p0 = gc.gs["drag_dir"]
-        if p0 is not None:
-            ax = p0[1]*p1[2] - p0[2]*p1[1]
-            ay = p0[2]*p1[0] - p0[0]*p1[2]
-            az = p0[0]*p1[1] - p0[1]*p1[0]
-            axis_len = math.sqrt(ax*ax + ay*ay + az*az)
-
-            if axis_len > 1e-6:
-                dot   = max(-1.0, min(1.0, p0[0]*p1[0] + p0[1]*p1[1] + p0[2]*p1[2]))
-                angle = math.acos(dot)
-                na    = (ax/axis_len, ay/axis_len, az/axis_len)
-                rot   = rl.matrix_rotate(Vector3(*na), angle)
-                gc.gs["object_transform"] = rl.matrix_multiply(gc.gs["object_transform"], rot)
-                gc.gs["spin_axis"]  = na
-                gc.gs["spin_angle"] = angle
-
-            gc.gs["drag_dir"] = p1
-    else:
-        if gc.gs["spin_angle"] > 1e-5:
-            rot = rl.matrix_rotate(Vector3(*gc.gs["spin_axis"]), gc.gs["spin_angle"])
-            gc.gs["object_transform"] = rl.matrix_multiply(gc.gs["object_transform"], rot)
-        gc.gs["spin_angle"] *= 0.88
-
-
-def _update_debug_camera(gc: Game_context, camera: rl.Camera3D, dt: float): # 
-    # return
-    delta = rl.get_mouse_delta()
-    gc.gs["cam_yaw"]   -= delta.x * 0.003
-    gc.gs["cam_pitch"] -= delta.y * 0.003
-    gc.gs["cam_pitch"]  = max(-1.2, min(1.2, gc.gs["cam_pitch"]))
-
-    yaw, pitch = gc.gs["cam_yaw"], gc.gs["cam_pitch"]
-    dx = math.sin(yaw) * math.cos(pitch)
-    dy = math.sin(pitch)
-    dz = math.cos(yaw) * math.cos(pitch)
-    forward = Vector3(dx, dy, dz)
-    right   = Vector3(math.cos(yaw), 0.0, -math.sin(yaw))
-
-    speed = 3.0 * dt
-    p = gc.gs["cam_pos"]
-    if rl.is_key_down(rl.KEY_W): p.x += forward.x*speed; p.y += forward.y*speed; p.z += forward.z*speed
-    if rl.is_key_down(rl.KEY_S): p.x -= forward.x*speed; p.y -= forward.y*speed; p.z -= forward.z*speed
-    if rl.is_key_down(rl.KEY_A): p.x += right.x*speed;   p.z += right.z*speed
-    if rl.is_key_down(rl.KEY_D): p.x -= right.x*speed;   p.z -= right.z*speed
-
-    camera.position = Vector3(p.x, p.y, p.z)
-    camera.target   = Vector3(p.x + dx, p.y + dy, p.z + dz)
+from player import Player
+from utils import get_scaled_rect, _screen_to_virtual
 
 # ---------------------------------------------------------------------------
 # DRAW FUNCTIONS
 # ---------------------------------------------------------------------------
-
-
 
 def draw_pause(font: rl.Font):
     """Pause overlay — solid black screen with centered PAUSED text."""
@@ -141,27 +36,9 @@ def draw_pause(font: rl.Font):
         w = _measure(text, 40)
         _draw(text, cx - w // 2, cy + 62 + i * 38, 40, rl.Color(180, 180, 180, 200))
 
-# ---------------------------------------------------------------------------
-# RENDER-TEXTURE SCALING (letterbox / pillarbox)
-# ---------------------------------------------------------------------------
 
-def draw_inspect_hud(gs: dict, dst: rl.Rectangle):
-    """Inspect HUD — drawn directly on screen after the shader blit."""
-    bx = int(dst.x) + 8
-    by = int(dst.y + dst.height) - 20
-    if gs.get("debug"):
-        rl.draw_text(b"DEBUG CAM  [WASD] Move  [Mouse] Look  [F1] Exit",
-                     bx, by, 11, rl.Color(80, 220, 80, 220))
-    else:
-        rl.draw_text(
-            b"[LMB] Rotate   [P] Pause   [F] Fullscreen   [F1] Debug cam   [K] Painting",
-            bx, by, 11, rl.Color(120, 100, 65, 190))
 
-def get_scaled_rect(gc: Game_context) -> rl.Rectangle:
-    sw, sh = rl.get_screen_width(), rl.get_screen_height()
-    scale  = min(sw / gc.VIRTUAL_W, sh / gc.VIRTUAL_H)
-    dw, dh = gc.VIRTUAL_W * scale, gc.VIRTUAL_H * scale
-    return rl.Rectangle((sw - dw) / 2, (sh - dh) / 2, dw, dh)
+
 
 # ---------------------------------------------------------------------------
 # SHADER HELPER
@@ -172,15 +49,6 @@ def _set_shader_resolution(shader, loc: int, w: float, h: float):
     rl.set_shader_value(shader, loc, res, rl.SHADER_UNIFORM_VEC2)
 
 
-
-def unload_textures(textures: dict):
-    rl.unload_texture(textures["bg"])
-    rl.unload_texture(textures["menu_bg"])
-    rl.unload_font(textures["tropiland_font"])
-
-def unload_models(models: dict):
-    rl.unload_model(models["table"])
-    rl.unload_model(models["object"])
 
 def general_inputs(gc: Game_context): # Essa funcao mostra q era pra ter uma classe aqui, mas n to botando pq lucas pediu pra n usar
     # -------------------------------------------------------------- #
@@ -236,7 +104,7 @@ def update(gc: Game_context, dt: float):
                         rl.enable_cursor()
                     gc.transition.start(State.PAUSE)
                 else:
-                    update_inspect(gc, dt, _update_debug_camera, _update_object)
+                    update_inspect(gc, dt)
 
             elif gc.current_state == State.PAUSE:
                 if rl.is_key_pressed(rl.KEY_P):
@@ -292,11 +160,11 @@ def blit_on_screen(gc: Game_context, render_tex=None, src_rect=None, painting_sh
             draw_menu(gc.now, dst, gc.textures["tropiland_font"])
             
         case State.INSPECT:
-            draw_inspect_hud(gc.gs, dst)
+            gc.player.draw_hud(dst)
 
         case State.PAUSE:
             draw_pause(gc.textures["tropiland_font"])
-            draw_inspect_hud(gc.gs, dst)
+            gc.player.draw_hud(dst)
 
     # Transition fade drawn on top of everything
     gc.transition.draw()
@@ -320,6 +188,7 @@ async def main():
     rl.enable_cursor()
 
     gc = Game_context()
+    gc.player = Player(gc)
     print("Initialization complete, entering main loop...")
 
     gc.VIRTUAL_W, gc.VIRTUAL_H = rl.get_screen_width(), rl.get_screen_height()
@@ -359,8 +228,8 @@ async def main():
     # --- Cleanup ---
     rl.unload_shader(painting_shader)
     rl.unload_render_texture(render_tex)
-    unload_models(gc.models)
-    unload_textures(gc.textures)
+    gc.unload_models()
+    gc.unload_textures()
     rl.close_window()
 
 

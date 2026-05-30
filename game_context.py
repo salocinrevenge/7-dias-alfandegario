@@ -58,6 +58,7 @@ class Game_context:
         self.transition         = Transition()
         self.prev_time          = time.time()
         self.now                = self.prev_time
+        self.player              = None
 
     def load_textures(self):
         self.textures = {}
@@ -72,6 +73,16 @@ class Game_context:
         self.models = {}
         self.models["table"]  = rl.load_model(b"models/env/chinese_tea_table_2k.gltf")
         self.models["object"] = rl.load_model(b"models/objects/mantel_clock_01_1k.gltf")
+
+
+    def unload_textures(self):
+        rl.unload_texture(self.textures["bg"])
+        rl.unload_texture(self.textures["menu_bg"])
+        rl.unload_font(self.textures["tropiland_font"])
+
+    def unload_models(self):
+        rl.unload_model(self.models["table"])
+        rl.unload_model(self.models["object"])
 
     # ---------------------------------------------------------------------------
     # SCENE STATE
