@@ -78,6 +78,7 @@ class Game_context:
 
     def start_day(self):
         self.itens_hoje['to evaluate'] = list(range(1, self.n_itens_dias[self.dia_atual]+1))
+        self.itens_hoje['evaluated'] = []
 
     def load_textures(self):
         self.textures = {}
@@ -91,18 +92,17 @@ class Game_context:
     def load_models(self):
         self.models = {}
         self.models["table"]  = rl.load_model(b"models/env/chinese_tea_table_2k.gltf")
-        self.models["object"] = rl.load_model(b"models/objects/mantel_clock_01_1k.gltf")
-        # self.models["object"] = rl.load_model(b"models/objects/papel.gltf")
+        self.models["relogio"] = rl.load_model(b"models/objects/mantel_clock_01_1k.gltf")
+        self.models["lista"] = rl.load_model(b"models/objects/papel.gltf")
 
 
     def unload_textures(self):
-        rl.unload_texture(self.textures["bg"])
-        rl.unload_texture(self.textures["menu_bg"])
-        rl.unload_font(self.textures["tropiland_font"])
+        for tex in self.textures.values():
+            rl.unload_texture(tex)
 
     def unload_models(self):
-        rl.unload_model(self.models["table"])
-        rl.unload_model(self.models["object"])
+        for model in self.models.values():
+            rl.unload_model(model)
 
     # ---------------------------------------------------------------------------
     # SCENE STATE
