@@ -19,8 +19,8 @@ def draw_inspect_3d( gc: Game_context):
 
     rl.begin_mode_3d(gc.camera)
     rl.draw_model(gc.models["table"], gc.TABLE_POS, gc.TABLE_SCALE, rl.WHITE)
-    gc.models["object"].transform = gc.gs["object_transform"]
-    rl.draw_model(gc.models["object"], gc.OBJECT_POS, 1.0, rl.Color(255, 255, 255, 255))
+    gc.models["object_badged"].transform = gc.gs["object_transform"]
+    rl.draw_model(gc.models["object_badged"], gc.OBJECT_POS, 1.0, rl.Color(255, 255, 255, 255))
     rl.end_mode_3d()
 
 def update_inspect(gc: Game_context, dt: float):

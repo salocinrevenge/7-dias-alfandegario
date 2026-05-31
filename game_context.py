@@ -6,6 +6,7 @@ import time
 
 from state import State
 from transition import Transition
+from badge import attach_badge
 
 
 class Game_context:
@@ -91,8 +92,12 @@ class Game_context:
     def load_models(self):
         self.models = {}
         self.models["table"]  = rl.load_model(b"models/env/chinese_tea_table_2k.gltf")
-        self.models["object"] = rl.load_model(b"models/objects/mantel_clock_01_1k.gltf")
+        self.models["object"] = rl.load_model(b"models/objects/mantel_clock/mantel_clock_01_1k.gltf")
         # self.models["object"] = rl.load_model(b"models/objects/papel.gltf")
+
+        # Example: load a separate copy and attach a badge
+        model_copy = rl.load_model(b"models/objects/mantel_clock/mantel_clock_01_1k.gltf")
+        self.models["object_badged"] = attach_badge(model_copy, "crown")
 
 
     def unload_textures(self):
@@ -103,6 +108,7 @@ class Game_context:
     def unload_models(self):
         rl.unload_model(self.models["table"])
         rl.unload_model(self.models["object"])
+        rl.unload_model(self.models["object_badged"])
 
     # ---------------------------------------------------------------------------
     # SCENE STATE
