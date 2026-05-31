@@ -146,12 +146,19 @@ def _draw_paper(gc: Game_context):
 
 def draw_inspect_3d(gc: Game_context):
     rl.clear_background(rl.BLACK)
+
+    # The Kuwahara painting filter is applied to the background image only,
+    # giving it a painted look while the 3D table/objects stay crisp.
+    if gc.painting_enabled:
+        rl.begin_shader_mode(gc.painting_shader)
     rl.draw_texture_pro(
         gc.textures["bg"],
         rl.Rectangle(0, 0, gc.textures["bg"].width, gc.textures["bg"].height),
         rl.Rectangle(0, 0, gc.VIRTUAL_W, gc.VIRTUAL_H),
         Vector2(0, 0), 0.0, rl.Color(245, 185, 185, 255),
     )
+    if gc.painting_enabled:
+        rl.end_shader_mode()
 
     # Dust motes float in screen space behind the table/objects (drawn before
     # the 3D pass, which renders on top of them).
