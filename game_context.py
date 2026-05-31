@@ -473,6 +473,7 @@ class Game_context:
 
         self.apply_badges_for_current()
 
+
     # Badge images (under textures/) keyed by the Item attribute that triggers
     # them. Aliado/Inimigo have interchangeable variants; the curses are stamped
     # when the item is AMALDICOADO (a random one) and/or VENENOSO (venenoso).
