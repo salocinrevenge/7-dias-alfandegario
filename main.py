@@ -99,16 +99,19 @@ def general_inputs(gc: Game_context): # Essa funcao mostra q era pra ter uma cla
         gc.keyhole_curse_active = not getattr(gc, "keyhole_curse_active", False)
 
 
-def resize_texture_if_needed(gc: Game_context, render_tex, painting_shader, shader_res_loc, src_rect):
+def resize_texture_if_needed(gc: Game_context, render_tex, src_rect):
     sw, sh = rl.get_screen_width(), rl.get_screen_height()
     if sw > 0 and sh > 0 and (sw != gc.VIRTUAL_W or sh != gc.VIRTUAL_H):
         rl.unload_render_texture(render_tex)
+        rl.unload_render_texture(gc.keyhole_mask)
         gc.VIRTUAL_W, gc.VIRTUAL_H = sw, sh
         render_tex = rl.load_render_texture(gc.VIRTUAL_W, gc.VIRTUAL_H)
         rl.set_texture_filter(render_tex.texture, rl.TEXTURE_FILTER_BILINEAR)
+        gc.keyhole_mask = rl.load_render_texture(gc.VIRTUAL_W, gc.VIRTUAL_H)
         src_rect = rl.Rectangle(0, 0, gc.VIRTUAL_W, -gc.VIRTUAL_H)
-        # Keep shader resolution uniform in sync
-        _set_shader_resolution(painting_shader, shader_res_loc, gc.VIRTUAL_W, gc.VIRTUAL_H)
+        # Keep both whole-screen shaders' resolution uniforms in sync.
+        _set_shader_resolution(gc.painting_shader, gc.painting_res_loc, gc.VIRTUAL_W, gc.VIRTUAL_H)
+        _set_shader_resolution(gc.magnifier_shader, gc.magnifier_res_loc, gc.VIRTUAL_W, gc.VIRTUAL_H)
 
     return render_tex, src_rect
 
@@ -227,7 +230,13 @@ def draw_on_texture(gc: Game_context, render_tex):
 
     match gc.current_state:
         case State.MENU:
+            # Paint the menu backdrop with the Kuwahara shader, same as the
+            # in-game background.
+            if gc.painting_enabled:
+                rl.begin_shader_mode(gc.painting_shader)
             draw_menu_bg_into_texture(gc.textures["menu_bg"], gc.VIRTUAL_W, gc.VIRTUAL_H)
+            if gc.painting_enabled:
+                rl.end_shader_mode()
 
         case State.INSPECT:
             draw_inspect_3d(gc)
@@ -245,104 +254,72 @@ def draw_on_texture(gc: Game_context, render_tex):
             draw_inspect_3d(gc)
             draw_tutorial_talk(gc)
 
+    # Composite the keyhole mask over the finished scene (multiply blend).
+    composite_keyhole(gc)
+
     rl.end_texture_mode()
 
-def draw_keyhole_effect(gc, radius=180, tri_h=360, flare_width=240):
-    """
-    Draws a negative-space mask using a layered geometric stack.
-    If the inversion curse is active, it manually flips the rendering arithmetic
-    upside down without altering the 2D matrix camera.
+
+def render_keyhole_mask(gc):
+    """Render the keyhole aperture into gc.keyhole_mask: an opaque black field
+    with the keyhole drawn WHITE (a circle for the head + a downward triangle
+    for the body). Composited later with multiply blending, white keeps the
+    scene and black hides it — so tuning the keyhole is just tuning these two
+    shapes. Must be called outside any other texture-mode pass.
     """
     if not getattr(gc, "keyhole_curse_active", False):
         return
 
-    mouse = rl.get_mouse_position()
-    M_X = mouse.x
-    M_Y = mouse.y
+    # Cursor → virtual (render-texture) space so it lines up with the scene.
+    # get_mouse_position() returns the inversion-corrected cursor, i.e. the
+    # render-texture point that sits under the physical cursor once the
+    # inversion-curse blit mirrors everything — so the aperture stays on the
+    # mouse whether or not the curse is active.
+    dst   = get_scaled_rect(gc)
+    mouse = _screen_to_virtual(gc, get_mouse_position(gc), dst)
+    mx, my = mouse.x, mouse.y
 
-    R = float(radius)
-    H = float(tri_h)
-    F = float(flare_width)
-    
-    # Large bounding box constant to clear off-screen space completely
-    BOX = 4000.0 
+    # Dimensions as fractions of the virtual height → resize-stable.
+    vh = gc.VIRTUAL_H
+    R  = gc.KEYHOLE_RADIUS_FRAC * vh   # head radius
+    CW = gc.KEYHOLE_CONE_W_FRAC * vh   # body half-width at the base
+    CH = gc.KEYHOLE_CONE_H_FRAC * vh   # body height
 
-    is_inverted = getattr(gc, "inversion_curse_active", False)
+    rl.begin_texture_mode(gc.keyhole_mask)
+    rl.clear_background(rl.BLACK)                       # opaque black surround
 
-    if not is_inverted:
-        # ==============================================================
-        # NORMAL SYSTEM (Points Downwards)
-        # ==============================================================
-        # 1. TOP SEMI-CIRCLE (Black covers UPWARDS and SIDEWAYS)
-        rl.draw_ring(mouse, R, BOX, 180.0, 360.0, 64, rl.BLACK)
+    rl.draw_circle(int(mx), int(my), R, rl.WHITE)      # head
+    # Body: a downward triangle (apex at the head, wide base below). Drawn with
+    # both windings so it fills regardless of back-face culling.
+    apex = rl.Vector2(mx, my)
+    bl   = rl.Vector2(mx - CW, my + CH)
+    br   = rl.Vector2(mx + CW, my + CH)
+    rl.draw_triangle(apex, bl, br, rl.WHITE)
+    rl.draw_triangle(apex, br, bl, rl.WHITE)
 
-        # 2. BOTTOM SEMI-CIRCLE (Black covers ONLY SIDEWAYS)
-        rl.draw_rectangle(int(M_X - BOX), int(M_Y), int(BOX - R), int(R), rl.BLACK)
-        rl.draw_rectangle(int(M_X + R), int(M_Y), int(BOX - R), int(R), rl.BLACK)
-
-        # 3. TRAPEZOID FLARE
-        start_y = M_Y + R
-
-        # Bottom Left Voids
-        V_L_TL = rl.Vector2(M_X - BOX, start_y)
-        V_L_TR = rl.Vector2(M_X - R, start_y)
-        V_L_BL = rl.Vector2(M_X - BOX, M_Y + H)
-        V_L_BR = rl.Vector2(M_X - F, M_Y + H)
-
-        rl.draw_triangle(V_L_TL, V_L_BL, V_L_BR, rl.BLACK)
-        rl.draw_triangle(V_L_TL, V_L_BR, V_L_TR, rl.BLACK)
-
-        # Bottom Right Voids
-        V_R_TL = rl.Vector2(M_X + BOX, start_y)
-        V_R_TR = rl.Vector2(M_X + R, start_y)
-        V_R_BL = rl.Vector2(M_X + BOX, M_Y + H)
-        V_R_BR = rl.Vector2(M_X + F, M_Y + H)
-
-        rl.draw_triangle(V_R_TL, V_R_BR, V_R_BL, rl.BLACK)
-        rl.draw_triangle(V_R_TL, V_R_TR, V_R_BR, rl.BLACK)
-
-        # 4. DEEP FLOOR VOID
-        rl.draw_rectangle(int(M_X - BOX), int(M_Y + H), int(BOX * 2), int(BOX), rl.BLACK)
-
-    else:
-        # ==============================================================
-        # INVERTED SYSTEM (Points Upwards)
-        # ==============================================================
-        # 1. BOTTOM SEMI-CIRCLE (Black covers DOWNWARDS and SIDEWAYS)
-        # Sweeping 0 to 180 degrees targets the lower half of the screen
-        rl.draw_ring(mouse, R, BOX, 0.0, 180.0, 64, rl.BLACK)
-
-        # 2. TOP SEMI-CIRCLE (Black covers ONLY SIDEWAYS)
-        # Rectangles shift upwards by the radius height to flank the circle
-        rl.draw_rectangle(int(M_X - BOX), int(M_Y - R), int(BOX - R), int(R), rl.BLACK)
-        rl.draw_rectangle(int(M_X + R), int(M_Y - R), int(BOX - R), int(R), rl.BLACK)
-
-        # 3. TRAPEZOID FLARE (Extends upwards along negative Y coordinates)
-        start_y = M_Y - R
-
-        # Top Left Voids (Winding sequence rewritten to match CCW orientation)
-        V_L_BL = rl.Vector2(M_X - R, start_y)
-        V_L_BR = rl.Vector2(M_X - BOX, start_y)
-        V_L_TL = rl.Vector2(M_X - F, M_Y - H)
-        V_L_TR = rl.Vector2(M_X - BOX, M_Y - H)
-
-        rl.draw_triangle(V_L_BL, V_L_TL, V_L_TR, rl.BLACK)
-        rl.draw_triangle(V_L_BL, V_L_TR, V_L_BR, rl.BLACK)
-
-        # Top Right Voids (Winding sequence rewritten to match CCW orientation)
-        V_R_BL = rl.Vector2(M_X + R, start_y)
-        V_R_BR = rl.Vector2(M_X + BOX, start_y)
-        V_R_TL = rl.Vector2(M_X + F, M_Y - H)
-        V_R_TR = rl.Vector2(M_X + BOX, M_Y - H)
-
-        rl.draw_triangle(V_R_BL, V_R_TR, V_R_TL, rl.BLACK)
-        rl.draw_triangle(V_R_BL, V_R_BR, V_R_TR, rl.BLACK)
-
-        # 4. DEEP CEILING VOID (Fills the entire remaining zone above the flare)
-        rl.draw_rectangle(int(M_X - BOX), int(M_Y - H - BOX), int(BOX * 2), int(BOX), rl.BLACK)
+    rl.end_texture_mode()
 
 
-def blit_on_screen(gc: Game_context, render_tex=None, src_rect=None, painting_shader=None):
+def composite_keyhole(gc):
+    """Multiply the scene by the keyhole mask (white aperture → scene, black
+    surround → darkness). Called inside the scene's texture-mode pass."""
+    if not getattr(gc, "keyhole_curse_active", False):
+        return
+
+    rl.begin_blend_mode(rl.BLEND_MULTIPLIED)
+    # Negative source height flips the mask FBO upright into the scene's logical
+    # space (same convention as the final screen blit), so the aperture lands
+    # under the cursor and aligns with the scene.
+    rl.draw_texture_pro(
+        gc.keyhole_mask.texture,
+        rl.Rectangle(0, 0, gc.VIRTUAL_W, -gc.VIRTUAL_H),
+        rl.Rectangle(0, 0, gc.VIRTUAL_W, gc.VIRTUAL_H),
+        rl.Vector2(0, 0), 0.0, rl.WHITE,
+    )
+    rl.end_blend_mode()
+
+
+def blit_on_screen(gc: Game_context, render_tex=None, src_rect=None, screen_shader=None):
     rl.begin_drawing()
     rl.clear_background(rl.BLACK)
 
@@ -350,8 +327,10 @@ def blit_on_screen(gc: Game_context, render_tex=None, src_rect=None, painting_sh
 
     final_src_rect = curses.inversion_curse(gc, src_rect)
 
-    if gc.painting_enabled:
-        rl.begin_shader_mode(painting_shader)
+    # The blit always runs through a whole-screen shader (magnifier lens, or the
+    # nausea curse when active). The painting filter is applied earlier, only to
+    # the background texture inside the scene draw.
+    rl.begin_shader_mode(screen_shader)
 
     rl.draw_texture_pro(
         render_tex.texture,
@@ -362,12 +341,7 @@ def blit_on_screen(gc: Game_context, render_tex=None, src_rect=None, painting_sh
         rl.WHITE,
     )
 
-    # --- CLOSE SHADERS ---
-    if gc.painting_enabled:
-        rl.end_shader_mode()
-
-    if getattr(gc, "keyhole_curse_active", False):
-        draw_keyhole_effect(gc)
+    rl.end_shader_mode()
 
     # ---- Vignette (cool edge darkening, atmosphere) -----------------
     # Only over the live 3D scene, not the menu's own artwork.
@@ -445,19 +419,29 @@ async def main():
     rl.set_texture_filter(render_tex.texture, rl.TEXTURE_FILTER_BILINEAR)
     src_rect = rl.Rectangle(0, 0, gc.VIRTUAL_W, -gc.VIRTUAL_H)
 
-    # --- Painting shader (Kuwahara) ---
+    # Offscreen mask for the keyhole curse (black surround, white aperture).
+    gc.keyhole_mask = rl.load_render_texture(gc.VIRTUAL_W, gc.VIRTUAL_H)
+
     # WebGL (pygbag/Emscripten) needs GLSL ES 1.0; desktop uses GLSL 3.3.
-    _fs = b"shaders/painting_web.fs" if gc.IS_WEB else b"shaders/painting.fs"
-    painting_shader  = rl.load_shader(b"", _fs)
-    shader_res_loc   = rl.get_shader_location(painting_shader, b"resolution")
-    _set_shader_resolution(painting_shader, shader_res_loc, gc.VIRTUAL_W, gc.VIRTUAL_H)
 
-    # Magnifying-glass lens uniforms (driven by RMB in update_magnifier).
-    lens_center_loc = rl.get_shader_location(painting_shader, b"lensCenter")
-    lens_radius_loc = rl.get_shader_location(painting_shader, b"lensRadius")
-    lens_zoom_loc   = rl.get_shader_location(painting_shader, b"lensZoom")
+    # --- Painting shader (Kuwahara) — applied ONLY to the background texture
+    # inside the scene draw (see draw_inspect_3d). Stored on gc so the draw
+    # code can reach it; [K] toggles gc.painting_enabled.
+    _pfs = b"shaders/painting_web.fs" if gc.IS_WEB else b"shaders/painting.fs"
+    gc.painting_shader   = rl.load_shader(b"", _pfs)
+    gc.painting_res_loc  = rl.get_shader_location(gc.painting_shader, b"resolution")
+    _set_shader_resolution(gc.painting_shader, gc.painting_res_loc, gc.VIRTUAL_W, gc.VIRTUAL_H)
 
-    # --- NAUSEA SHADER INITIALIZATION ---
+    # --- Magnifier lens shader — applied to the WHOLE render texture at blit.
+    _mfs = b"shaders/magnifier_web.fs" if gc.IS_WEB else b"shaders/magnifier.fs"
+    gc.magnifier_shader  = rl.load_shader(b"", _mfs)
+    gc.magnifier_res_loc = rl.get_shader_location(gc.magnifier_shader, b"resolution")
+    _set_shader_resolution(gc.magnifier_shader, gc.magnifier_res_loc, gc.VIRTUAL_W, gc.VIRTUAL_H)
+    lens_center_loc = rl.get_shader_location(gc.magnifier_shader, b"lensCenter")
+    lens_radius_loc = rl.get_shader_location(gc.magnifier_shader, b"lensRadius")
+    lens_zoom_loc   = rl.get_shader_location(gc.magnifier_shader, b"lensZoom")
+
+    # --- Nausea curse shader — applied to the WHOLE render texture at blit.
     nausea_shader = rl.load_shader(b"", b"shaders/nausea.fs")
     nausea_time_loc = rl.get_shader_location(nausea_shader, b"seconds")
     gc.nausea_curse_active = False # Start deactivated
@@ -481,24 +465,29 @@ async def main():
         rl.set_shader_value(nausea_shader, nausea_time_loc, time_ptr, rl.SHADER_UNIFORM_FLOAT)
 
         # fullscreen resize screen
-        render_tex, src_rect = resize_texture_if_needed(gc, render_tex, painting_shader, shader_res_loc, src_rect)
-        
+        render_tex, src_rect = resize_texture_if_needed(gc, render_tex, src_rect)
+
         #  UPDATE
         update(gc, dt)
 
-        # Push magnifier lens state into the painting shader.
-        rl.set_shader_value(painting_shader, lens_center_loc,
+        # Push magnifier lens state into the lens shader (used at blit).
+        rl.set_shader_value(gc.magnifier_shader, lens_center_loc,
                             rl.ffi.new("float[2]", list(gc.lens_center)), rl.SHADER_UNIFORM_VEC2)
-        rl.set_shader_value(painting_shader, lens_radius_loc,
+        rl.set_shader_value(gc.magnifier_shader, lens_radius_loc,
                             rl.ffi.new("float *", gc.lens_radius), rl.SHADER_UNIFORM_FLOAT)
-        rl.set_shader_value(painting_shader, lens_zoom_loc,
+        rl.set_shader_value(gc.magnifier_shader, lens_zoom_loc,
                             rl.ffi.new("float *", gc.lens_zoom), rl.SHADER_UNIFORM_FLOAT)
 
         #  DRAW
+        # Build the keyhole mask first (its own offscreen pass), then the scene
+        # multiplies itself by it at the end of draw_on_texture.
+        render_keyhole_mask(gc)
         draw_on_texture(gc, render_tex)
-        is_nauseous = getattr(gc, "nausea_curse_active", False)
-        active_shader = nausea_shader if is_nauseous else painting_shader
 
+        # Whole-render-texture blit pass: nausea curse takes over when active,
+        # otherwise the magnifier lens (a passthrough unless RMB is held).
+        is_nauseous = getattr(gc, "nausea_curse_active", False)
+        active_shader = nausea_shader if is_nauseous else gc.magnifier_shader
 
         #  BLIT RENDER TEXTURE → SCREEN
         blit_on_screen(gc, render_tex, src_rect, active_shader)
@@ -507,8 +496,11 @@ async def main():
         await asyncio.sleep(0)
 
     # --- Cleanup ---
-    rl.unload_shader(painting_shader)
+    rl.unload_shader(gc.painting_shader)
+    rl.unload_shader(gc.magnifier_shader)
+    rl.unload_shader(nausea_shader)
     rl.unload_render_texture(render_tex)
+    rl.unload_render_texture(gc.keyhole_mask)
     gc.unload_models()
     gc.unload_textures()
     gc.unload_fonts()

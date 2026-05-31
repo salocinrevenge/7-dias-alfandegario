@@ -6,28 +6,7 @@ in vec4 fragColor;
 uniform sampler2D texture0;
 uniform vec2 resolution;
 
-// --- Magnifying-glass lens (RMB) ---------------------------------------
-// lensZoom == 1.0 disables it. Inside a circle of lensRadius around
-// lensCenter (UV), coordinates are pulled toward the centre to magnify.
-uniform vec2  lensCenter;
-uniform float lensRadius;
-uniform float lensZoom;
-
 out vec4 finalColor;
-
-// Returns the (possibly magnified) sampling coord and writes a 0..1 rim mask
-// (1 on the thin glass edge) into `rim`.
-vec2 applyLens(vec2 uv, out float rim) {
-    rim = 0.0;
-    if (lensZoom <= 1.001) return uv;
-    vec2  d      = uv - lensCenter;
-    float aspect = resolution.x / resolution.y;
-    float r      = length(vec2(d.x * aspect, d.y));   // circular in screen space
-    float m      = smoothstep(lensRadius, lensRadius * 0.88, r);
-    rim = smoothstep(lensRadius * 0.90, lensRadius * 0.97, r)
-          * (1.0 - smoothstep(lensRadius * 0.99, lensRadius * 1.04, r));
-    return mix(uv, lensCenter + d / lensZoom, m);
-}
 
 // ---------------------------------------------------------------------------
 // Kuwahara filter — classic oil-painting post-process.
@@ -40,9 +19,6 @@ vec2 applyLens(vec2 uv, out float rim) {
 // The result looks like brushstroke-averaged paint.
 // ---------------------------------------------------------------------------
 void main() {
-    float rim;
-    vec2 center = applyLens(fragTexCoord, rim);   // magnified centre under the lens
-
     vec2 texel  = 1.0 / resolution;
     const int R = 3;                         // kernel half-size; raise for thicker strokes
     float n     = float((R + 1) * (R + 1)); // samples per quadrant
@@ -54,28 +30,28 @@ void main() {
     // Top-left quadrant  (i ∈ [-R,0], j ∈ [-R,0])
     for (int j = -R; j <= 0; j++)
         for (int i = -R; i <= 0; i++) {
-            vec3 c = texture(texture0, center + vec2(float(i), float(j)) * texel).rgb;
+            vec3 c = texture(texture0, fragTexCoord + vec2(float(i), float(j)) * texel).rgb;
             mean[0] += c;  sq[0] += c * c;
         }
 
     // Top-right quadrant (i ∈ [0,R],  j ∈ [-R,0])
     for (int j = -R; j <= 0; j++)
         for (int i = 0; i <= R; i++) {
-            vec3 c = texture(texture0, center + vec2(float(i), float(j)) * texel).rgb;
+            vec3 c = texture(texture0, fragTexCoord + vec2(float(i), float(j)) * texel).rgb;
             mean[1] += c;  sq[1] += c * c;
         }
 
     // Bottom-left quadrant  (i ∈ [-R,0], j ∈ [0,R])
     for (int j = 0; j <= R; j++)
         for (int i = -R; i <= 0; i++) {
-            vec3 c = texture(texture0, center + vec2(float(i), float(j)) * texel).rgb;
+            vec3 c = texture(texture0, fragTexCoord + vec2(float(i), float(j)) * texel).rgb;
             mean[2] += c;  sq[2] += c * c;
         }
 
     // Bottom-right quadrant (i ∈ [0,R],  j ∈ [0,R])
     for (int j = 0; j <= R; j++)
         for (int i = 0; i <= R; i++) {
-            vec3 c = texture(texture0, center + vec2(float(i), float(j)) * texel).rgb;
+            vec3 c = texture(texture0, fragTexCoord + vec2(float(i), float(j)) * texel).rgb;
             mean[3] += c;  sq[3] += c * c;
         }
 
@@ -96,9 +72,6 @@ void main() {
     // Slight saturation boost (+20 %) makes the painted look more vivid
     vec3 grey   = vec3(dot(result, vec3(0.299, 0.587, 0.114)));
     result      = mix(grey, result, 1.20);
-
-    // Darken the thin glass rim so the lens edge reads as a lens.
-    result *= (1.0 - 0.45 * rim);
 
     finalColor = vec4(result, 1.0) * fragColor;
 }

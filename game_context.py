@@ -213,6 +213,13 @@ class Game_context:
         self.lens_radius = 0.17                  # lens radius (fraction of height)
         self.lens_zoom   = 1.0                   # current magnification (1 = off)
 
+        # --- Keyhole curse (vision mask) ---
+        # The aperture is a circle (head) + a downward triangle (body). All
+        # fractions of the virtual height, so it stays proportional on resize.
+        self.KEYHOLE_RADIUS_FRAC = 0.08 * 0.8 # head radius
+        self.KEYHOLE_CONE_W_FRAC = 0.15 * 0.8 # body half-width at the base
+        self.KEYHOLE_CONE_H_FRAC = 0.25 * 0.8 # body height
+
         # --- Window
         self.windowed_w, self.windowed_h = 1080, 720
 
