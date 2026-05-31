@@ -19,14 +19,14 @@ _PAPER_LINES = [
     b"<h1>[ ] Radioativo ?",
     b"<h1>[ ] Real ?",
     b"<h1>[ ] Nobre ?",
-    b"<h1>[ ] Importado ?",
+    b"<h1>[ ] Aliado ?",
     b"<h1>[ ] Rival ?",
     b"<small>",
     b"<body>Maldicoes:",
     b"<body>Aliados:",
     b"<body>Rivais:",
     b"",
-    b"<h2>                                               Aceitar      Rejeitar",
+    b"<h2>                                               Rejeitar Aceitar",
 ]
 
 PAPER_TW, PAPER_TH = 512, 724
@@ -48,11 +48,11 @@ def _button_rects(font: rl.Font, span: dict) -> dict:
     """Sub-rects of the two words on the Aceitar/Rejeitar span (texture coords)."""
     text, size = span["text"], span["size"]
     x, y, h    = span["x"], span["y"], span["h"]
-    r_off = text.find(b"Rejeitar")
+    r_off = text.find(b"Aceitar")
     return {
-        "aceitar":  (x, y, quad_text.measure(font, b"Aceitar", size), h),
-        "rejeitar": (x + quad_text.measure(font, text[:r_off], size),
-                     y, quad_text.measure(font, b"Rejeitar", size), h),
+        "rejeitar":  (x, y, quad_text.measure(font, b"Rejeitar", size), h),
+        "aceitar": (x + quad_text.measure(font, text[:r_off], size),
+                     y, quad_text.measure(font, b"Aceitar", size), h),
     }
 
 
@@ -214,8 +214,9 @@ class Game_context:
         self.prev_time          = time.time()
         self.now                = self.prev_time
         self.player             = None
-        self.player_cartas_odio = 0
-        self.odio_to_day = 5
+        self.n_erros = 0
+        self.penalidade = 0
+        self.penalidade_to_day = 5
         self.dia_atual = 0
         self.n_itens_dias = {
             1: 3,
@@ -230,28 +231,30 @@ class Game_context:
             'to evaluate': [],
             'evaluated': []
         }
-        self.properties_on_list = {
-            "VENENOSO": False,
-            "RADIOATIVO": False,
-            "REAL": False,
-            "NOBRE": False,
-            "ALIADOS": [],
-            "RIVAL": [],
-            "MIMICO": False
-        }
 
         self.error_costs = {
+            "AMALDICOADO": 5,
             "VENENOSO": 4,
             "RADIOATIVO": 1,
             "REAL": 3,
             "NOBRE": 2,
-            "MIMICO": 7,
-            "MALDIÇÕES": 5,
             "ALIADOS": 1,
             "RIVAIS": 2,
-            "REJECT": 1
+            "REJECT": 1,
+            "MIMICO": 7,
         }
         self.positive_rejects = ["REAL", "NOBRE", "ALIADOS"]
+        self.negative_acept = ["AMALDICOADO", "VENENOSO", "RADIOATIVO", "RIVAIS", "MIMICO"]
+
+        self.properties_on_list = {
+            "AMALDICOADO": False,
+            "VENENOSO": False,
+            "RADIOATIVO": False,
+            "REAL": False,
+            "NOBRE": False,
+            "ALIADOS": False,
+            "RIVAIS": False,
+        }
 
         self.reset_count_until_end_day = 100
         self.count_until_end_day = self.reset_count_until_end_day
@@ -485,3 +488,23 @@ class Game_context:
             "cam_pitch":    self._INIT_CAM_PITCH,
             "cam_pos":      Vector3(self.CAM_POS.x, self.CAM_POS.y, self.CAM_POS.z),
         }
+
+    def compute_negatives(self, acao: str) -> list[str]:
+        penalidade = 0
+        n_erros = 0
+        
+        for atributo, valor in self.properties_on_list.items():
+            if valor != self.itens_hoje['to evaluate'][0].atributos[atributo]:
+                penalidade += self.error_costs[atributo]
+                n_erros += 1
+                if atributo in self.positive_rejects and acao == "rejeitar":
+                    penalidade += self.error_costs[atributo]
+                if atributo in self.negative_acept and acao == "aceitar":
+                    penalidade += self.error_costs[atributo]
+        if acao == "aceitar":
+            if self.itens_hoje['to evaluate'][0].atributos["MIMICO"]:
+                penalidade += self.error_costs["MIMICO"] # Passou mimico
+            if self.itens_hoje['to evaluate'][0].atributos["MORTE"]:
+                raise Exception("O item é um mimico! Fim de jogo.")
+        self.n_erros = n_erros
+        self.penalidade = penalidade

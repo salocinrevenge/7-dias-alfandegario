@@ -196,14 +196,7 @@ def draw_inspect_3d(gc: Game_context):
 
 def send_item(gc: Game_context):
     gc.itens_hoje['evaluated'].append(gc.itens_hoje['to evaluate'].pop(0))
-    penalidade = 0
-    n_erros = 0
-    for atributo, valor in gc.itens_hoje['evaluated'][-1].atributos.items():
-        if type(valor) != list:
-            if gc.properties_on_list[atributo] != valor:
-                n_erros += 1
-                penalidade += gc.error_costs[atributo]
-    gc.player_cartas_odio += n_erros
+    
 
 
 # ---------------------------------------------------------------------------
@@ -363,6 +356,21 @@ def update_inspect(gc: Game_context, dt: float):
             elif item["type"] == "check":
                 states = gc.gs["paper_states"]
                 states[item["key"]] = not states.get(item["key"], False)
+                
+                # Mapeamento do check_idx para a propriedade correspondente
+                prop_map = {
+                    "check_0": "AMALDICOADO",
+                    "check_1": "VENENOSO",
+                    "check_2": "RADIOATIVO",
+                    "check_3": "REAL",
+                    "check_4": "NOBRE",
+                    "check_5": "ALIADOS",
+                    "check_6": "RIVAIS",
+                }
+                if item["key"] in prop_map:
+                    gc.properties_on_list[prop_map[item["key"]]] = states[item["key"]]
+                print(f"Updated paper state: {item['key']} is now {states[item['key']]}, list: {gc.properties_on_list}")
+                    
                 gc.rebake_paper(hovered_key=new_hk)
             elif item["type"] == "button":
                 _on_button(gc, item["key"])
@@ -434,11 +442,18 @@ def _on_button(gc: Game_context, key: str):
     # The actual item advance (send_item) is deferred until the swipe completes and
     # the paper has settled back down — see _update_object_transition.
     if len(gc.itens_hoje['to evaluate']) > 0:
-        _start_object_transition(gc, -1 if key == "aceitar" else 1)
+        _start_object_transition(gc, 1 if key == "aceitar" else -1)
+        neg = gc.compute_negatives(key)
+        
 
     # Put the paper down and reset every checkbox back to its unchecked version.
     gc.gs["paper_open"] = False
     gc.gs["paper_hovered_item"] = None
     gc.gs["paper_hovered_key"] = None
     gc.gs["paper_states"] = {}
+    
+    # Also reset the properties tracking correctly
+    for prop in gc.properties_on_list.keys():
+        gc.properties_on_list[prop] = False
+        
     gc.rebake_paper()

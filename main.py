@@ -417,6 +417,7 @@ async def main():
     rl.set_target_fps(60)
     rl.enable_cursor()
 
+    rl.toggle_fullscreen()
     if sys.platform != "emscripten":
         monitor = rl.get_current_monitor()
         rl.set_window_size(rl.get_monitor_width(monitor), rl.get_monitor_height(monitor))
