@@ -19,14 +19,14 @@ _PAPER_LINES = [
     b"<h1>[ ] Radioativo ?",
     b"<h1>[ ] Real ?",
     b"<h1>[ ] Nobre ?",
-    b"<h1>[ ] Importado ?",
+    b"<h1>[ ] Aliado ?",
     b"<h1>[ ] Rival ?",
     b"<small>",
     b"<body>Maldicoes:",
     b"<body>Aliados:",
     b"<body>Rivais:",
     b"",
-    b"<h2>                                               Aceitar      Rejeitar",
+    b"<h2>                                               Rejeitar Aceitar",
 ]
 
 PAPER_TW, PAPER_TH = 512, 724
@@ -48,11 +48,11 @@ def _button_rects(font: rl.Font, span: dict) -> dict:
     """Sub-rects of the two words on the Aceitar/Rejeitar span (texture coords)."""
     text, size = span["text"], span["size"]
     x, y, h    = span["x"], span["y"], span["h"]
-    r_off = text.find(b"Rejeitar")
+    r_off = text.find(b"Aceitar")
     return {
-        "aceitar":  (x, y, quad_text.measure(font, b"Aceitar", size), h),
-        "rejeitar": (x + quad_text.measure(font, text[:r_off], size),
-                     y, quad_text.measure(font, b"Rejeitar", size), h),
+        "rejeitar":  (x, y, quad_text.measure(font, b"Rejeitar", size), h),
+        "aceitar": (x + quad_text.measure(font, text[:r_off], size),
+                     y, quad_text.measure(font, b"Aceitar", size), h),
     }
 
 
@@ -233,8 +233,10 @@ class Game_context:
         self.prev_time          = time.time()
         self.now                = self.prev_time
         self.player             = None
-        self.player_cartas_odio = 0
-        self.odio_to_day = 5
+        self.n_erros = 0
+        self.penalidade = 0
+        self.penalidade_to_day = 5
+        self.erros_to_fire = 50
         self.dia_atual = 0
         self.n_itens_dias = {
             1: 3,
@@ -249,32 +251,37 @@ class Game_context:
             'to evaluate': [],
             'evaluated': []
         }
-        self.properties_on_list = {
-            "VENENOSO": False,
-            "RADIOATIVO": False,
-            "REAL": False,
-            "NOBRE": False,
-            "ALIADOS": [],
-            "RIVAL": [],
-            "MIMICO": False
-        }
 
         self.error_costs = {
+            "AMALDICOADO": 5,
             "VENENOSO": 4,
             "RADIOATIVO": 1,
             "REAL": 3,
             "NOBRE": 2,
-            "MIMICO": 7,
-            "MALDIÇÕES": 5,
             "ALIADOS": 1,
             "RIVAIS": 2,
-            "REJECT": 1
+            "REJECT": 1,
+            "MIMICO": 7,
         }
         self.positive_rejects = ["REAL", "NOBRE", "ALIADOS"]
+        self.negative_acept = ["AMALDICOADO", "VENENOSO", "RADIOATIVO", "RIVAIS", "MIMICO"]
+
+        self.properties_on_list = {
+            "AMALDICOADO": False,
+            "VENENOSO": False,
+            "RADIOATIVO": False,
+            "REAL": False,
+            "NOBRE": False,
+            "ALIADOS": False,
+            "RIVAIS": False,
+        }
 
         self.reset_count_until_end_day = 100
         self.count_until_end_day = self.reset_count_until_end_day
         self.created_room = False
+
+        self.item_time_max = 60.0
+        self.item_time_left = 60.0
 
         self.tutorial_texts = [
             "Nas torres frias da escuridao,\ncomeca hoje tua missao.\nJulga os tesouros sem temor,\nanota tudo com rigor.",
@@ -312,8 +319,18 @@ class Game_context:
     def start_new_day(self):
         self.created_room = True
         self.make_scene_state()
-        self.transition.start(State.INSPECT)
+        if self.penalidade >= self.penalidade_to_day:
+            self.dia_atual -= 1
+            self.penalidade = 0
+        if self.n_erros >= self.erros_to_fire:
+            self.transition.start(State.GAME_OVER_FIRED)
+            return
         self.dia_atual += 1
+        if self.dia_atual > 7:
+            self.transition.start(State.GAME_OVER_WIN)
+            return
+            
+        self.transition.start(State.INSPECT)
         self.day_intro_timer = 2.5
         self.day_intro_char_count = 0.0
         print(f"Starting day {self.dia_atual}...")
@@ -463,8 +480,8 @@ class Game_context:
         self.textures["vignette"] = vig_tex
 
     def load_particles(self):
-        """Create the dust-mote field and its soft glow sprite."""
-        from particles import DustParticles
+        """Create the dust-mote field, the property auras, and their glow sprite."""
+        from particles import DustParticles, AuraParticles, RadiationParticles
         # White radial glow (opaque centre → transparent edge); tinted per mote.
         img = rl.gen_image_gradient_radial(64, 64, 0.0,
                                            rl.Color(255, 255, 255, 255),
@@ -474,6 +491,10 @@ class Game_context:
         rl.set_texture_filter(glow, rl.TEXTURE_FILTER_BILINEAR)
         self.textures["dust_glow"] = glow
         self.particles = DustParticles(glow, count=90)
+
+        # Subtle coloured effects hinting at hidden object properties.
+        self.aura_radio  = RadiationParticles((90, 255, 110)) 
+        self.aura_poison = AuraParticles((175, 80, 215))
 
     @staticmethod
     def _make_planar_shadow_matrix(light: Vector3, plane_y: float) -> rl.Matrix:
@@ -495,6 +516,24 @@ class Game_context:
         return m
 
     def load_sounds(self):
+        self.music = {}
+        # Load background music tracks
+        music_files = {
+            "menu": b"sounds/menu-music.mp3",
+            "gameplay": b"sounds/gameplay-music.mp3",
+            "derrota": b"sounds/derrota-music.mp3",
+            "vitoria": b"sounds/vitoria-music.mp3"
+        }
+        for name, path in music_files.items():
+            import os
+            if os.path.exists(path.decode('utf-8')):
+                self.music[name] = rl.load_music_stream(path)
+            else:
+                self.music[name] = None
+        
+        self.current_music_key = None
+        self.current_music_stream = None
+
         # tenta carregar um som para cada tutorial/estrofe.
         import os
         candidates = []
@@ -561,6 +600,34 @@ class Game_context:
         self.textures["paper"] = new_tex
         self.models["paper"].materials[0].maps[rl.MATERIAL_MAP_DIFFUSE].texture = new_tex
 
+    def update_music(self):
+        # Determine the appropriate music based on current state
+        desired_music_key = None
+        if self.current_state == State.MENU:
+            desired_music_key = "menu"
+        elif self.current_state in (State.INSPECT, State.PAUSE, State.INTRO):
+            desired_music_key = "gameplay"
+        elif self.current_state in (State.GAME_OVER_FIRED, State.GAME_OVER_EXPLODED):
+            desired_music_key = "derrota"
+        elif self.current_state == State.GAME_OVER_WIN:
+            desired_music_key = "vitoria"
+
+        # Switch music if needed
+        if desired_music_key != self.current_music_key:
+            if self.current_music_stream is not None:
+                rl.stop_music_stream(self.current_music_stream)
+            
+            self.current_music_key = desired_music_key
+            if desired_music_key and self.music.get(desired_music_key):
+                self.current_music_stream = self.music[desired_music_key]
+                rl.play_music_stream(self.current_music_stream)
+            else:
+                self.current_music_stream = None
+
+        # Update the currently playing music
+        if self.current_music_stream is not None:
+            rl.update_music_stream(self.current_music_stream)
+
     def unload_fonts(self):
         for font in self.fonts.values():
             rl.unload_font(font)
@@ -581,6 +648,14 @@ class Game_context:
                 if s is not None:
                     try:
                         rl.unload_sound(s)
+                    except Exception:
+                        pass
+                        
+        if hasattr(self, 'music'):
+            for m in self.music.values():
+                if m is not None:
+                    try:
+                        rl.unload_music_stream(m)
                     except Exception:
                         pass
 
@@ -628,3 +703,23 @@ class Game_context:
             "cam_pitch":    self._INIT_CAM_PITCH,
             "cam_pos":      Vector3(self.CAM_POS.x, self.CAM_POS.y, self.CAM_POS.z),
         }
+
+    def compute_negatives(self, acao: str) -> list[str]:
+        penalidade = self.penalidade
+        n_erros = self.n_erros
+        
+        for atributo, valor in self.properties_on_list.items():
+            if valor != self.itens_hoje['to evaluate'][0].atributos[atributo]:
+                penalidade += self.error_costs[atributo]
+                n_erros += 1
+                if atributo in self.positive_rejects and acao == "rejeitar":
+                    penalidade += self.error_costs[atributo]
+                if atributo in self.negative_acept and acao == "aceitar":
+                    penalidade += self.error_costs[atributo]
+        if acao == "aceitar":
+            if self.itens_hoje['to evaluate'][0].atributos["MIMICO"]:
+                penalidade += self.error_costs["MIMICO"] # Passou mimico
+            if self.itens_hoje['to evaluate'][0].atributos["MORTE"]:
+                self.transition.start(State.GAME_OVER_EXPLODED)
+        self.n_erros = n_erros
+        self.penalidade = penalidade

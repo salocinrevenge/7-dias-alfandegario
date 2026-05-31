@@ -141,9 +141,11 @@ def update(gc: Game_context, dt: float):
 
     general_inputs(gc)
     update_animations(gc, dt)
-    # Dust drifts continuously whenever the 3D scene is on screen.
+    # Dust + property auras drift continuously whenever the 3D scene is shown.
     if gc.current_state in (State.INSPECT, State.INTRO, State.PAUSE):
         gc.particles.update(dt)
+        gc.aura_radio.update(dt)
+        gc.aura_poison.update(dt)
     if not gc.transition.active or not gc.transition._fading_out:
             match gc.current_state:
                 case State.MENU:
@@ -178,6 +180,9 @@ def update(gc: Game_context, dt: float):
                         gc.transition.start(State.INSPECT)
                     elif rl.is_key_pressed(rl.KEY_M):
                         gc.transition.start(State.MENU)
+                case State.GAME_OVER_FIRED | State.GAME_OVER_WIN | State.GAME_OVER_EXPLODED:
+                    from end_states import update_end_state
+                    update_end_state(gc, dt)
                 case State.INTRO:
                     # Leia qualquer input do mouse ou teclado para pular a introdução
                     if not hasattr(gc, "gs"):
@@ -253,6 +258,10 @@ def draw_on_texture(gc: Game_context, render_tex):
         case State.INTRO:
             draw_inspect_3d(gc)
             draw_tutorial_talk(gc)
+
+        case State.GAME_OVER_FIRED | State.GAME_OVER_WIN | State.GAME_OVER_EXPLODED:
+            from end_states import draw_end_state
+            draw_end_state(gc)
 
     # Composite the keyhole mask over the finished scene (multiply blend).
     composite_keyhole(gc)
@@ -405,6 +414,7 @@ async def main():
     rl.set_target_fps(60)
     rl.enable_cursor()
 
+    rl.toggle_fullscreen()
     if sys.platform != "emscripten":
         monitor = rl.get_current_monitor()
         rl.set_window_size(rl.get_monitor_width(monitor), rl.get_monitor_height(monitor))
@@ -466,6 +476,9 @@ async def main():
 
         # fullscreen resize screen
         render_tex, src_rect = resize_texture_if_needed(gc, render_tex, src_rect)
+
+        # MUSIC
+        gc.update_music()
 
         #  UPDATE
         update(gc, dt)
