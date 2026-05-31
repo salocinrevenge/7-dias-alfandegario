@@ -5,3 +5,4 @@ class State:
     MENU    = "menu"
     INSPECT = "inspect"
     PAUSE   = "pause"
+    INTRO   = "intro"

@@ -168,11 +168,11 @@ class Game_context:
             candidates.clear()
             candidates.extend([
                 f"sounds/intro{i+1}.ogg",
-                f"sounds/intro{i+1}.mp3",
-                f"sounds/intro{i+1}.wav",
+                f"sounds/intro{i+1}.ogg",
+                f"sounds/intro{i+1}.ogg",
                 f"sounds/tutorial_{i+1}.ogg",
-                f"sounds/tutorial_{i+1}.mp3",
-                f"sounds/tutorial_{i+1}.wav",
+                f"sounds/tutorial_{i+1}.ogg",
+                f"sounds/tutorial_{i+1}.ogg",
             ])
 
             sound_obj = None
