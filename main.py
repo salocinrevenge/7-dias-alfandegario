@@ -141,9 +141,11 @@ def update(gc: Game_context, dt: float):
 
     general_inputs(gc)
     update_animations(gc, dt)
-    # Dust drifts continuously whenever the 3D scene is on screen.
+    # Dust + property auras drift continuously whenever the 3D scene is shown.
     if gc.current_state in (State.INSPECT, State.INTRO, State.PAUSE):
         gc.particles.update(dt)
+        gc.aura_radio.update(dt)
+        gc.aura_poison.update(dt)
     if not gc.transition.active or not gc.transition._fading_out:
             match gc.current_state:
                 case State.MENU:

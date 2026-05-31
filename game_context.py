@@ -463,8 +463,8 @@ class Game_context:
         self.textures["vignette"] = vig_tex
 
     def load_particles(self):
-        """Create the dust-mote field and its soft glow sprite."""
-        from particles import DustParticles
+        """Create the dust-mote field, the property auras, and their glow sprite."""
+        from particles import DustParticles, AuraParticles, RadiationParticles
         # White radial glow (opaque centre → transparent edge); tinted per mote.
         img = rl.gen_image_gradient_radial(64, 64, 0.0,
                                            rl.Color(255, 255, 255, 255),
@@ -474,6 +474,10 @@ class Game_context:
         rl.set_texture_filter(glow, rl.TEXTURE_FILTER_BILINEAR)
         self.textures["dust_glow"] = glow
         self.particles = DustParticles(glow, count=90)
+
+        # Subtle coloured effects hinting at hidden object properties.
+        self.aura_radio  = RadiationParticles((90, 255, 110)) 
+        self.aura_poison = AuraParticles((175, 80, 215))
 
     @staticmethod
     def _make_planar_shadow_matrix(light: Vector3, plane_y: float) -> rl.Matrix:

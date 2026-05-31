@@ -26,8 +26,8 @@ class Item:
             name = random.choice(self.tipos)
         self.name = name
         self.atributos = {
-            "VENENOSO": False if random.random() < 0.65 else True,
-            "RADIOATIVO": False if random.random() < 0.83 else True,
+            "VENENOSO": False if random.random() < 0.40 else True,
+            "RADIOATIVO": False if random.random() < 0.64 else True,
             "REAL": False if random.random() < 0.6 else True,
             "NOBRE": False if random.random() < 0.4 else True,
             "MIMICO": False if random.random() < 0.92 else True,

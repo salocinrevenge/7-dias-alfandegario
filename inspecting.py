@@ -223,6 +223,14 @@ def draw_inspect_3d(gc: Game_context):
         rl.draw_model(item_model, obj_pos, 1.0, rl.WHITE)
         item_model.transform = rl.matrix_identity()
 
+        # --- Property auras (subtle coloured motes around the object) --------
+        item = gc.itens_hoje['to evaluate'][0]
+        glow = gc.textures["dust_glow"]
+        if item.atributos.get("RADIOATIVO"):
+            gc.aura_radio.draw(obj_pos, glow, gc.camera)
+        if item.atributos.get("VENENOSO"):
+            gc.aura_poison.draw(obj_pos, glow, gc.camera)
+
     # Paper is always drawn on top of the table (depth test off avoids z-fighting).
     rl.rl_draw_render_batch_active()
     rl.rl_disable_depth_test()
