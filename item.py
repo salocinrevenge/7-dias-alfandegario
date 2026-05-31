@@ -15,24 +15,75 @@ OBJECT_MODELS = {
     "garden_gnome":         b"models/objects/garden_gnome/garden_gnome_1k.gltf",
     "concrete_cat_statue":  b"models/objects/concrete_cat_statue/concrete_cat_statue_1k.gltf",
     "lambis_shell":         b"models/objects/lambis_shell/lambis_shell_1k.gltf",
+    # --- Foods (hunger system) ---
+    "maca":             b"models/objects/food_apple/food_apple_01_1k.gltf",
+    "lichia":           b"models/objects/food_lychee/food_lychee_01_1k.gltf",
+    "limao":            b"models/objects/lemon/lemon_1k.gltf",
+    "bolo":             b"models/objects/strawberry_chocolate_cake/strawberry_chocolate_cake_1k.gltf",
+    "cebola":           b"models/objects/yellow_onion/yellow_onion_1k.gltf",
 }
+
+FOOD_NAMES = {"maca", "lichia", "limao", "bolo", "cebola"}
 
 
 class Item:
     tipos = list(OBJECT_MODELS.keys())
 
-    def __init__(self, name = None):
+    def __init__(self, name=None):
         if name is None:
             name = random.choice(self.tipos)
         self.name = name
+        self.is_food = name in FOOD_NAMES
+
+        if self.is_food:
+            self._init_food_attrs()
+        else:
+            self._init_normal_attrs()
+
+    def _init_normal_attrs(self):
         self.atributos = {
-            "AMALDICOADO": False if random.random() < 0.75 else True,
-            "VENENOSO": False if random.random() < 0.65 else True,
-            "RADIOATIVO": False if random.random() < 0.83 else True,
-            "REAL": False if random.random() < 0.006 else True,
-            "NOBRE": False if random.random() < 0.4 else True,
-            "ALIADOS": False if random.random() < 0.5 else True,
-            "RIVAIS": False if random.random() < 0.5 else True,
-            "MIMICO": True,
-            "MORTE": False if random.random() < 0.99 else True,
+            "AMALDICOADO": random.random() < 0.25,
+            "VENENOSO":    random.random() < 0.35,
+            "RADIOATIVO":  random.random() < 0.17,
+            "REAL":        random.random() >= 0.006,
+            "NOBRE":       random.random() < 0.40,
+            "ALIADOS":     random.random() < 0.50,
+            "RIVAIS":      random.random() < 0.50,
+            "MIMICO":      random.random() < 0.15,
+            "MORTE":       random.random() < 0.01,
         }
+
+    def _init_food_attrs(self):
+        self.atributos = {
+            "AMALDICOADO": random.random() < 0.12,
+            "VENENOSO":    random.random() < 0.18,
+            "RADIOATIVO":  random.random() < 0.05,
+            "REAL":        True,
+            "NOBRE":       random.random() < 0.70,
+            "ALIADOS":     random.random() < 0.15,
+            "RIVAIS":      random.random() < 0.15,
+            "MIMICO":      random.random() < 0.04,
+            "MORTE":       False,
+        }
+
+    @property
+    def hunger_restore(self) -> float:
+        """How much hunger this food restores when eaten (only meaningful for foods)."""
+        if not self.is_food:
+            return 0.0
+        base = 35.0
+        if self.atributos.get("VENENOSO"):
+            base = -15.0
+        if self.atributos.get("AMALDICOADO"):
+            base += -10.0
+        if self.atributos.get("RADIOATIVO"):
+            base += -8.0
+        if self.atributos.get("MIMICO"):
+            base = 0.0
+        return base
+
+    @property
+    def hunger_penalty(self) -> float:
+        """Extra hunger lost from eating bad food (absolute value, always >= 0)."""
+        r = self.hunger_restore
+        return max(0.0, -r)

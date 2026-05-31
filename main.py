@@ -363,6 +363,17 @@ def blit_on_screen(gc: Game_context, render_tex=None, src_rect=None, screen_shad
             Vector2(0, 0), 0.0, rl.WHITE,
         )
 
+        # ---- Hunger vignette (reddish edge pulse when starving) ------
+        hunger_ratio = gc.hunger / gc.hunger_max if gc.hunger_max > 0 else 1.0
+        if hunger_ratio < 0.30:
+            alpha = int((1.0 - hunger_ratio / 0.30) * 90)
+            rl.draw_texture_pro(
+                vig,
+                rl.Rectangle(0, 0, float(vig.width), float(vig.height)),
+                dst,
+                Vector2(0, 0), 0.0, rl.Color(180, 20, 10, alpha),
+            )
+
     # ---- Overlays (unaffected by the painting shader) ---------------
     match gc.current_state:
         case State.MENU:
@@ -479,6 +490,10 @@ async def main():
 
         # MUSIC
         gc.update_music()
+        # AUDIO EFFECTS (poison wobble, curse distortion, time pressure, etc.)
+        gc.audio_effects.update(dt)
+        # HUNGER DECAY
+        gc.update_hunger(dt)
 
         #  UPDATE
         update(gc, dt)
