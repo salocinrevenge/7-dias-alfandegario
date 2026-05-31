@@ -7,9 +7,11 @@ import time
 import quad_text
 from state import State
 from transition import Transition
-from item import Item
+import random
+from item import Item, OBJECT_MODELS
 from animation import add_shake, TweenAnimation
-from eyes import MimicEyes
+from mimic import Mimic, unload_appendage_models
+from badge import attach_badge
 
 # Lines support a leading <tag> that selects a font size (see quad_text.SIZES).
 _PAPER_LINES = [
@@ -20,14 +22,11 @@ _PAPER_LINES = [
     b"<h1>[ ] Radioativo ?",
     b"<h1>[ ] Real ?",
     b"<h1>[ ] Nobre ?",
-    b"<h1>[ ] Importado ?",
+    b"<h1>[ ] Aliado ?",
     b"<h1>[ ] Rival ?",
     b"<small>",
-    b"<body>Maldicoes:",
-    b"<body>Aliados:",
-    b"<body>Rivais:",
     b"",
-    b"<h2>                                               Aceitar      Rejeitar",
+    b"<h2>                                               Rejeitar Aceitar",
 ]
 
 PAPER_TW, PAPER_TH = 512, 724
@@ -49,11 +48,11 @@ def _button_rects(font: rl.Font, span: dict) -> dict:
     """Sub-rects of the two words on the Aceitar/Rejeitar span (texture coords)."""
     text, size = span["text"], span["size"]
     x, y, h    = span["x"], span["y"], span["h"]
-    r_off = text.find(b"Rejeitar")
+    r_off = text.find(b"Aceitar")
     return {
-        "aceitar":  (x, y, quad_text.measure(font, b"Aceitar", size), h),
-        "rejeitar": (x + quad_text.measure(font, text[:r_off], size),
-                     y, quad_text.measure(font, b"Rejeitar", size), h),
+        "rejeitar":  (x, y, quad_text.measure(font, b"Rejeitar", size), h),
+        "aceitar": (x + quad_text.measure(font, text[:r_off], size),
+                     y, quad_text.measure(font, b"Aceitar", size), h),
     }
 
 
@@ -141,8 +140,8 @@ class Game_context:
         # ---------------------------------------------------------------------------
         # RENDER RESOLUTION
         # ---------------------------------------------------------------------------
-        self.VIRTUAL_W = 960 * 0.5
-        self.VIRTUAL_H = 720 * 0.5
+        self.VIRTUAL_W = int(960 * 0.5)
+        self.VIRTUAL_H = int(720 * 0.5)
 
         # ---------------------------------------------------------------------------
         # SCENE CONSTANTS
@@ -181,6 +180,10 @@ class Game_context:
         self.load_fonts()
         self.load_textures()
         self.load_models()
+        # Top-down light + soft contact shadow (after models exist).
+        self.load_lighting()
+        # Floating dust motes drawn behind the 3D scene.
+        self.load_particles()
 
         # --- Audio ---
         try:
@@ -202,6 +205,21 @@ class Game_context:
         self.camera.fovy       = 55.0
         self.camera.projection = rl.CAMERA_PERSPECTIVE
 
+        # --- Magnifying-glass tool (hold RMB) ---
+        # A screen-space lens in the post-process shader; the camera never moves.
+        self.MAGNIFY     = 2.3                   # peak magnification inside the lens
+        self.zoom_t      = 0.0                   # eased 0→1 activation
+        self.lens_center = (0.5, 0.5)            # cursor position in texture UV
+        self.lens_radius = 0.17                  # lens radius (fraction of height)
+        self.lens_zoom   = 1.0                   # current magnification (1 = off)
+
+        # --- Keyhole curse (vision mask) ---
+        # The aperture is a circle (head) + a downward triangle (body). All
+        # fractions of the virtual height, so it stays proportional on resize.
+        self.KEYHOLE_RADIUS_FRAC = 0.08 * 0.8 # head radius
+        self.KEYHOLE_CONE_W_FRAC = 0.15 * 0.8 # body half-width at the base
+        self.KEYHOLE_CONE_H_FRAC = 0.25 * 0.8 # body height
+
         # --- Window
         self.windowed_w, self.windowed_h = 1080, 720
 
@@ -211,10 +229,10 @@ class Game_context:
         self.current_state      = State.MENU
         self.prev_inspect_drawn = False
         self.transition         = Transition()
+        self.start_time         = time.time()
         self.prev_time          = time.time()
         self.now                = self.prev_time
         self.player             = None
-        self.player_cartas_odio = 0
         self.n_erros = 0
         self.penalidade = 0
         self.penalidade_to_day = 5
@@ -233,17 +251,6 @@ class Game_context:
             'to evaluate': [],
             'evaluated': []
         }
-        self.properties_on_list = {
-            "AMALDICOADO": False,
-            "VENENOSO": False,
-            "RADIOATIVO": False,
-            "REAL": False,
-            "NOBRE": False,
-            "ALIADOS": False,
-            "RIVAIS": False,
-            "MIMICO": False,
-            "MORTE": False,
-        }
 
         self.error_costs = {
             "AMALDICOADO": 5,
@@ -258,7 +265,19 @@ class Game_context:
             "MORTE": 10,
         }
         self.positive_rejects = ["REAL", "NOBRE", "ALIADOS"]
-        self.negative_acept = ["AMALDICOADO", "VENENOSO", "RADIOATIVO", "RIVAIS", "MIMICO", "MORTE"]
+        self.negative_acept = ["AMALDICOADO", "VENENOSO", "RADIOATIVO", "RIVAIS", "MIMICO"]
+
+        self.properties_on_list = {
+            "AMALDICOADO": False,
+            "VENENOSO": False,
+            "RADIOATIVO": False,
+            "REAL": False,
+            "NOBRE": False,
+            "ALIADOS": False,
+            "RIVAIS": False,
+            "MIMICO": False,
+            "MORTE": False,
+        }
 
         self.reset_count_until_end_day = 100
         self.count_until_end_day = self.reset_count_until_end_day
@@ -267,18 +286,7 @@ class Game_context:
         self.item_time_max = 60.0
         self.item_time_left = 60.0
 
-        self.tutorial_texts = [
-            "Nas torres frias da escuridão,\ncomeça hoje tua missão.\nJulga os tesouros sem temor,\nanota tudo com rigor.",
-            "Se houver veneno ou maldição,\nrejeita sem hesitação.\nSe um mímico ousar chegar,\nnão o deixes atravessar.",
-            "Das terras do inimigo vil,\nnão passes nada ao teu perfil.\nE o Livro Nuclear, em ardor,\nrecusa-o sem nenhum pudor.",
-            "Sete dias tens para provar\nque sabes bem fiscalizar.\nSe muitos erros cometer,\nao posto hás de retornar.",
-            "Mas se o fracasso florescer,\nteu cargo irás perder.\nAgora vigia o portão,\ne cumpre tua obrigação."
-        ]
-
-        self.tutorial_index = 0
-        self.tutorial_char_count = 0.0
-        self.tutorial_typing_speed = 30.0
-        self.tutorial_seen = False   # the intro tutorial only plays once (day 1)
+        self.reset_tutorial_texts()
 
         self.day_intro_timer = 0.0
         self.day_intro_char_count = 0.0
@@ -287,12 +295,60 @@ class Game_context:
         self.animations = {}
         self.mimic_eyes = {}
         self.current_mimic_eyes = None
+        # A fresh, badge-stamped copy of the current item's model (badges depend
+        # on the item instance's random attributes, so the shared pristine model
+        # in self.models is never touched). None → draw the pristine model.
+        self.current_item_model = None
+        self.current_item_model_name = None
         self.setup_animations()
-        # Agora que os textos existem, tente carregar os sons do tutorial
-        try:
-            self.load_sounds()
-        except Exception:
-            pass
+        self.load_sounds()
+
+    def reset_tutorial_texts(self):
+        self.tutorial_texts = [
+            "Nas torres frias da escuridao,\ncomeca hoje tua missao.\nJulga os tesouros sem temor,\nanota tudo com rigor.",
+            "Se houver veneno ou maldicao,\nrejeita sem hesitacao.\nSe um mimico ousar chegar,\nnao o deixes atravessar.",
+            "Das terras do inimigo vil,\nnao passes nada ao teu perfil.\nE o Livro Nuclear, em ardor,\nrecusa-o sem nenhum pudor.",
+            "Sete dias tens para provar\nque sabes bem fiscalizar.\nSe muitos erros cometer,\nao posto has de retornar.",
+            "Mas se o fracasso florescer,\nteu cargo iras perder.\nAgora vigia o portao,\ne cumpre tua obrigacao."
+        ]
+        self.tutorial_index = 0
+        self.tutorial_char_count = 0.0
+        self.tutorial_seen = False
+        self.tutorial_typing_speed = 30.0
+        self.tutorial_played_index = -1
+        
+        # Restore original tutorial sound if needed
+        if hasattr(self, "sounds") and "tutorial_1_original" in self.sounds:
+            self.sounds["tutorial_1"] = self.sounds["tutorial_1_original"]
+
+    def reset_game(self):
+        """Restore all gameplay progress to a fresh start, keeping loaded
+        resources (fonts/textures/models/sounds). Called whenever we return to
+        the menu or finish a run so the next playthrough begins clean."""
+        self.n_erros = 0
+        self.penalidade = 0
+        self.dia_atual = 0
+        self.count_until_end_day = self.reset_count_until_end_day
+        self.created_room = False
+        self.itens_hoje = {'to evaluate': [], 'evaluated': []}
+
+        self.item_time_max = 60.0
+        self.item_time_left = 60.0
+
+        self.day_intro_timer = 0.0
+        self.day_intro_char_count = 0.0
+
+        for key in self.properties_on_list:
+            self.properties_on_list[key] = False
+
+        # Tutorial back to its day-1 state (resets index/seen/char counters too).
+        self.reset_tutorial_texts()
+        self.current_tutorial_sound = None
+
+        # Per-item visual state.
+        self._clear_current_item_model()
+        self.mimic_eyes.clear()
+        self.current_mimic_eyes = None
 
     def setup_animations(self):
         from item import OBJECT_MODELS
@@ -305,8 +361,34 @@ class Game_context:
     def start_new_day(self):
         self.created_room = True
         self.make_scene_state()
-        self.transition.start(State.INSPECT)
+        
+        is_redo = False
+        if self.penalidade >= self.penalidade_to_day:
+            self.dia_atual -= 1
+            self.penalidade = 0
+            is_redo = True
+            
+        if self.n_erros >= self.erros_to_fire:
+            self.transition.start(State.GAME_OVER_FIRED)
+            return
         self.dia_atual += 1
+        if self.dia_atual > 7:
+            self.transition.start(State.GAME_OVER_WIN)
+            return
+            
+        if is_redo:
+            self.tutorial_texts = ["Nossa alfandegario, voce errou coisa pra caramba, e melhor voce trabalhar mais um dia ai denovo vamos"]
+            self.tutorial_index = 0
+            self.tutorial_char_count = 0.0
+            self.tutorial_seen = False
+            self.tutorial_played_index = -1
+            self.transition.start(State.INSPECT)
+            
+            if hasattr(self, "sounds") and "redo" in self.sounds:
+                self.sounds["tutorial_1"] = self.sounds["redo"]
+        else:
+            self.transition.start(State.INSPECT)
+            
         self.day_intro_timer = 2.5
         self.day_intro_char_count = 0.0
         print(f"Starting day {self.dia_atual}...")
@@ -317,6 +399,18 @@ class Game_context:
 
         self.gs["object_hidden"]       = True
         self.gs["pending_first_enter"] = True
+
+    def mimic_view_args(self):
+        """(object world-rotation, world-space object→camera direction) used by
+        the mimic to keep its trait on the side facing away from the camera."""
+        cp, op = self.camera.position, self.OBJECT_POS
+        dx, dy, dz = cp.x - op.x, cp.y - op.y, cp.z - op.z
+        length = math.sqrt(dx * dx + dy * dy + dz * dz) or 1.0
+        cam_dir = Vector3(dx / length, dy / length, dz / length)
+        view_rot = self.gs.get("object_transform") if hasattr(self, "gs") else None
+        if view_rot is None:
+            view_rot = rl.matrix_identity()
+        return view_rot, cam_dir
 
     def _ensure_mimic_eyes_for_current(self):
         items = self.itens_hoje.get('to evaluate', [])
@@ -330,12 +424,73 @@ class Game_context:
 
         if is_mimic:
             if name not in self.mimic_eyes:
-                eyes = MimicEyes()
-                eyes.setup(self.models[name])
+                eyes = Mimic()
+                eyes.setup(self.models[name], *self.mimic_view_args())
                 self.mimic_eyes[name] = eyes
             self.current_mimic_eyes = self.mimic_eyes[name]
+            self.current_mimic_eyes.new_object()
         else:
             self.current_mimic_eyes = None
+
+        self.apply_badges_for_current()
+
+    # Badge images (under textures/) keyed by the Item attribute that triggers
+    # them. Aliado/Inimigo have interchangeable variants; the curses are stamped
+    # when the item is AMALDICOADO (a random one) and/or VENENOSO (venenoso).
+    _ALIADO_VARIANTS = ("Aliado1", "Aliado2", "Aliado3")
+    _INIMIGO_VARIANTS = ("Inimigo1", "Inimigo2", "Inimigo3")
+    _CURSE_VARIANTS = ("venenoso", "chave", "inverter")
+
+    def _badges_for_item(self, item) -> list[str]:
+        """The badge image names to stamp for *item*, per its attributes."""
+        a = item.atributos
+        badges: list[str] = []
+        if a.get("ALIADOS"):
+            badges.append(random.choice(self._ALIADO_VARIANTS))
+        if a.get("RIVAIS"):
+            badges.append(random.choice(self._INIMIGO_VARIANTS))
+        if a.get("VENENOSO"):
+            badges.append("venenoso")
+        if a.get("AMALDICOADO"):
+            badges.append(random.choice(self._CURSE_VARIANTS))
+        # Avoid stamping the same curse twice (e.g. VENENOSO + AMALDICOADO→venenoso).
+        return list(dict.fromkeys(badges))
+
+    def _clear_current_item_model(self):
+        if self.current_item_model is not None:
+            rl.unload_model(self.current_item_model)
+        self.current_item_model = None
+        self.current_item_model_name = None
+
+    def apply_badges_for_current(self):
+        """Stamp the current item's attribute badges onto a fresh copy of its
+        model. Plain items (no badges) keep using the shared pristine model."""
+        self._clear_current_item_model()
+
+        items = self.itens_hoje.get('to evaluate', [])
+        if not items:
+            return
+
+        item = items[0]
+        badges = self._badges_for_item(item)
+        if not badges:
+            return
+
+        # Fresh copy so the shared model in self.models stays pristine; the draw
+        # pass reassigns the lighting/shadow shaders to it every frame.
+        model = rl.load_model(OBJECT_MODELS[item.name])
+        for badge_name in badges:
+            attach_badge(model, badge_name, degradation=0.0, target_px=140)
+
+        self.current_item_model = model
+        self.current_item_model_name = item.name
+
+    def inspect_model(self, name):
+        """The model to draw for the inspected item: the badged copy when it
+        belongs to this item, otherwise the shared pristine model."""
+        if self.current_item_model is not None and self.current_item_model_name == name:
+            return self.current_item_model
+        return self.models[name]
 
     def load_fonts(self):
         """Load fonts once into self.fonts. The serif atlas includes the ✔ glyph
@@ -387,7 +542,154 @@ class Game_context:
         self.models["paper"] = rl.load_model_from_mesh(paper_mesh)
         self.models["paper"].materials[0].maps[rl.MATERIAL_MAP_DIFFUSE].texture = self.textures["paper"]
 
+        # Warm the mimic appendage model cache now so the first mimic appearance
+        # mid-game doesn't stutter while loading these heavy models.
+        from mimic import preload_appendage_models
+        preload_appendage_models()
+
+    def load_lighting(self):
+        """Set up a single Blinn-Phong spotlight from above plus a planar
+        projected shadow cast onto the table.
+
+        The light shader is applied to the table and every inspected object so
+        their tops catch the warm cone and their undersides fall into a cool
+        ambient. The paper keeps the default (unlit) shader so its baked text
+        stays crisp and bright. The shadow is a second, flattened draw of the
+        object using a flat dark shader — cheap and identical on desktop/web,
+        no depth-texture shadow mapping required.
+        """
+        if self.IS_WEB:
+            vs   = b"shaders/lighting_web.vs"
+            fs   = b"shaders/lighting_web.fs"
+            sfs  = b"shaders/shadow_web.fs"
+        else:
+            vs   = b"shaders/lighting.vs"
+            fs   = b"shaders/lighting.fs"
+            sfs  = b"shaders/shadow.fs"
+
+        shader = rl.load_shader(vs, fs)
+        self.lighting_shader = shader
+        # The shadow pass reuses the same vertex shader (positions only matter).
+        self.shadow_shader = rl.load_shader(vs, sfs)
+
+        # --- Light rig --------------------------------------------------------
+        # A spotlight hung above the table, slightly toward the camera, aiming
+        # down at the inspection spot. Constants are set once.
+        self.TABLE_TOP_Y = 0.52
+        self.LIGHT_POS   = Vector3(0.30, 1.75, 0.55)
+        light_target     = Vector3(0.0, self.OBJECT_Y, 0.0)
+        ldir = Vector3(light_target.x - self.LIGHT_POS.x,
+                       light_target.y - self.LIGHT_POS.y,
+                       light_target.z - self.LIGHT_POS.z)
+        _ln = math.sqrt(ldir.x**2 + ldir.y**2 + ldir.z**2) or 1.0
+        ldir = Vector3(ldir.x / _ln, ldir.y / _ln, ldir.z / _ln)
+
+        def _vec3(name, x, y, z):
+            loc = rl.get_shader_location(shader, name)
+            rl.set_shader_value(shader, loc, rl.ffi.new("float[3]", [x, y, z]),
+                                rl.SHADER_UNIFORM_VEC3)
+
+        def _float(name, v):
+            loc = rl.get_shader_location(shader, name)
+            rl.set_shader_value(shader, loc, rl.ffi.new("float *", v),
+                                rl.SHADER_UNIFORM_FLOAT)
+
+        _vec3(b"lightPos",     self.LIGHT_POS.x, self.LIGHT_POS.y, self.LIGHT_POS.z)
+        _vec3(b"lightDir",     ldir.x, ldir.y, ldir.z)
+        _vec3(b"lightColor",   1.10, 1.00, 0.86)        # warm key
+        _vec3(b"ambientColor", 0.18, 0.20, 0.28)        # cool fill
+        _float(b"spotInner",   math.cos(math.radians(26.0)))
+        _float(b"spotOuter",   math.cos(math.radians(44.0)))
+        _float(b"shininess",   28.0)
+        _float(b"specStrength", 0.30)
+
+        # viewPos changes with the camera, so cache its location for per-frame
+        # updates in draw_inspect_3d.
+        self.lighting_viewpos_loc = rl.get_shader_location(shader, b"viewPos")
+
+        # Apply the light shader to the table and all inspectable objects.
+        from item import OBJECT_MODELS
+        lit_models = ["table"] + list(OBJECT_MODELS.keys())
+        for name in lit_models:
+            model = self.models.get(name)
+            if model is None:
+                continue
+            for i in range(model.materialCount):
+                model.materials[i].shader = shader
+
+        # --- Planar shadow projection matrix ---------------------------------
+        # Flattens any world point onto the plane y = (TABLE_TOP_Y + lift) as
+        # seen from the point light at LIGHT_POS (classic OpenGL shadow matrix).
+        self.shadow_proj = self._make_planar_shadow_matrix(
+            self.LIGHT_POS, self.TABLE_TOP_Y + 0.004)
+
+        # --- Vignette ---------------------------------------------------------
+        # Transparent centre → cool-dark edges, stretched over the whole view.
+        # Drawn as a flat overlay so it works identically on desktop and web and
+        # stays on regardless of the painting/nausea post-process toggle.
+        vig = rl.gen_image_gradient_radial(256, 256, 0.55,
+                                           rl.Color(0, 0, 0, 0),
+                                           rl.Color(8, 6, 18, 215))
+        vig_tex = rl.load_texture_from_image(vig)
+        rl.unload_image(vig)
+        rl.set_texture_filter(vig_tex, rl.TEXTURE_FILTER_BILINEAR)
+        self.textures["vignette"] = vig_tex
+
+    def load_particles(self):
+        """Create the dust-mote field, the property auras, and their glow sprite."""
+        from particles import DustParticles, AuraParticles, RadiationParticles
+        # White radial glow (opaque centre → transparent edge); tinted per mote.
+        img = rl.gen_image_gradient_radial(64, 64, 0.0,
+                                           rl.Color(255, 255, 255, 255),
+                                           rl.Color(255, 255, 255, 0))
+        glow = rl.load_texture_from_image(img)
+        rl.unload_image(img)
+        rl.set_texture_filter(glow, rl.TEXTURE_FILTER_BILINEAR)
+        self.textures["dust_glow"] = glow
+        self.particles = DustParticles(glow, count=90)
+
+        # Subtle coloured effects hinting at hidden object properties.
+        self.aura_radio  = RadiationParticles((90, 255, 110)) 
+        self.aura_poison = AuraParticles((175, 80, 215))
+
+    @staticmethod
+    def _make_planar_shadow_matrix(light: Vector3, plane_y: float) -> rl.Matrix:
+        """Build the projection that flattens geometry onto the horizontal plane
+        y = plane_y, casting from the point light `light`.
+
+        Plane = (0, 1, 0, -plane_y); light = (lx, ly, lz, 1). raylib's Matrix is
+        column-major with field m{col*4 + row}; the matrix is consumed as
+        mvp * vertex, so this is the standard glide planar-shadow matrix.
+        """
+        lx, ly, lz = light.x, light.y, light.z
+        d = ly - plane_y          # dot(plane, light)
+
+        m = rl.Matrix()
+        m.m0,  m.m4,  m.m8,  m.m12 = d,    -lx,    0.0,  lx * plane_y
+        m.m1,  m.m5,  m.m9,  m.m13 = 0.0,  d - ly, 0.0,  ly * plane_y
+        m.m2,  m.m6,  m.m10, m.m14 = 0.0,  -lz,    d,    lz * plane_y
+        m.m3,  m.m7,  m.m11, m.m15 = 0.0,  -1.0,   0.0,  ly
+        return m
+
     def load_sounds(self):
+        self.music = {}
+        # Load background music tracks
+        music_files = {
+            "menu": b"sounds/menu-music.ogg",
+            "gameplay": b"sounds/gameplay-music.ogg",
+            "derrota": b"sounds/derrota-music.ogg",
+            "vitoria": b"sounds/vitoria-music.ogg"
+        }
+        for name, path in music_files.items():
+            import os
+            if os.path.exists(path.decode('utf-8')):
+                self.music[name] = rl.load_music_stream(path)
+            else:
+                self.music[name] = None
+        
+        self.current_music_key = None
+        self.current_music_stream = None
+
         # tenta carregar um som para cada tutorial/estrofe.
         import os
         candidates = []
@@ -444,6 +746,14 @@ class Game_context:
 
             self.sounds[f"tutorial_{i+1}"] = sound_obj
 
+        # Pre-load the redo sound
+        try:
+            self.sounds["redo"] = rl.load_sound(b"sounds/refazer.ogg")
+        except Exception:
+            self.sounds["redo"] = None
+        # Backup original day 1 tutorial
+        self.sounds["tutorial_1_original"] = self.sounds.get("tutorial_1")
+
 
     def rebake_paper(self, hovered_key: str | None = None):
         """Re-render the paper texture (checkbox states + optional button highlight) and hot-swap on the model."""
@@ -453,6 +763,34 @@ class Game_context:
         rl.unload_texture(self.textures["paper"])
         self.textures["paper"] = new_tex
         self.models["paper"].materials[0].maps[rl.MATERIAL_MAP_DIFFUSE].texture = new_tex
+
+    def update_music(self):
+        # Determine the appropriate music based on current state
+        desired_music_key = None
+        if self.current_state == State.MENU:
+            desired_music_key = "menu"
+        elif self.current_state in (State.INSPECT, State.PAUSE, State.INTRO):
+            desired_music_key = "gameplay"
+        elif self.current_state in (State.GAME_OVER_FIRED, State.GAME_OVER_EXPLODED):
+            desired_music_key = "derrota"
+        elif self.current_state == State.GAME_OVER_WIN:
+            desired_music_key = "vitoria"
+
+        # Switch music if needed
+        if desired_music_key != self.current_music_key:
+            if self.current_music_stream is not None:
+                rl.stop_music_stream(self.current_music_stream)
+            
+            self.current_music_key = desired_music_key
+            if desired_music_key and self.music.get(desired_music_key):
+                self.current_music_stream = self.music[desired_music_key]
+                rl.play_music_stream(self.current_music_stream)
+            else:
+                self.current_music_stream = None
+
+        # Update the currently playing music
+        if self.current_music_stream is not None:
+            rl.update_music_stream(self.current_music_stream)
 
     def unload_fonts(self):
         for font in self.fonts.values():
@@ -476,13 +814,25 @@ class Game_context:
                         rl.unload_sound(s)
                     except Exception:
                         pass
+                        
+        if hasattr(self, 'music'):
+            for m in self.music.values():
+                if m is not None:
+                    try:
+                        rl.unload_music_stream(m)
+                    except Exception:
+                        pass
 
     def unload_models(self):
-        for eyes in self.mimic_eyes.values():
-            eyes.unload()
+        self._clear_current_item_model()
         self.mimic_eyes.clear()
+        unload_appendage_models()
         for model in self.models.values():
             rl.unload_model(model)
+        if hasattr(self, "lighting_shader"):
+            rl.unload_shader(self.lighting_shader)
+        if hasattr(self, "shadow_shader"):
+            rl.unload_shader(self.shadow_shader)
 
     # ---------------------------------------------------------------------------
     # SCENE STATE
@@ -520,3 +870,23 @@ class Game_context:
             "cam_pitch":    self._INIT_CAM_PITCH,
             "cam_pos":      Vector3(self.CAM_POS.x, self.CAM_POS.y, self.CAM_POS.z),
         }
+
+    def compute_negatives(self, acao: str) -> list[str]:
+        penalidade = self.penalidade
+        n_erros = self.n_erros
+        
+        for atributo, valor in self.properties_on_list.items():
+            if valor != self.itens_hoje['to evaluate'][0].atributos[atributo]:
+                penalidade += self.error_costs[atributo]
+                n_erros += 1
+                if atributo in self.positive_rejects and acao == "rejeitar":
+                    penalidade += self.error_costs[atributo]
+                if atributo in self.negative_acept and acao == "aceitar":
+                    penalidade += self.error_costs[atributo]
+        if acao == "aceitar":
+            if self.itens_hoje['to evaluate'][0].atributos["MIMICO"]:
+                penalidade += self.error_costs["MIMICO"] # Passou mimico
+            if self.itens_hoje['to evaluate'][0].atributos["MORTE"]:
+                self.transition.start(State.GAME_OVER_EXPLODED)
+        self.n_erros = n_erros
+        self.penalidade = penalidade

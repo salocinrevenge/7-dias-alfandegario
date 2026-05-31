@@ -578,21 +578,27 @@ def _pick_badge_position(model, mat_idx, bw, bh):
 # Public API
 # ---------------------------------------------------------------------------
 
-def attach_badge(model, badge_name: str = "crown", scale: float = 0.25, degradation: float = 0.6):
+def attach_badge(model, badge_name: str = "badges/crown", scale: float = 0.25,
+                 degradation: float = 0.6, target_px: int | None = None):
     """Blend a badge image onto every real texture of *model* at a random
     position that lies on a visible surface.
 
     Args:
         model:       A raylib Model.
-        badge_name:  Badge filename without extension (e.g. ``'crown'``).
-        scale:       Resize the badge by this factor before stamping
-                     (default 0.25 → 32×32 px from the original 128×128).
+        badge_name:  Badge path under ``textures/`` without extension
+                     (e.g. ``'venenoso'`` → ``textures/venenoso.png``,
+                     ``'badges/crown'`` → ``textures/badges/crown.png``).
+        scale:       Resize the badge by this factor before stamping (ignored
+                     when *target_px* is given).
         degradation: 0 = pristine sticker, 1 = nearly invisible.
+        target_px:   If set, resize the badge so its largest dimension equals
+                     this many pixels — keeps badges a consistent on-object size
+                     regardless of their differing source resolutions.
 
     Returns:
         The same *model* with its texture(s) modified in-place.
     """
-    badge_img = rl.load_image(f"textures/badges/{badge_name}.png".encode())
+    badge_img = rl.load_image(f"textures/{badge_name}.png".encode())
     if badge_img.width == 0 or badge_img.height == 0:
         rl.unload_image(badge_img)
         return model
@@ -600,6 +606,11 @@ def attach_badge(model, badge_name: str = "crown", scale: float = 0.25, degradat
     # Ensure RGBA so we can safely blend and degrade
     if badge_img.format != rl.PIXELFORMAT_UNCOMPRESSED_R8G8B8A8:
         rl.image_format(badge_img, rl.PIXELFORMAT_UNCOMPRESSED_R8G8B8A8)
+
+    if target_px is not None:
+        longest = max(badge_img.width, badge_img.height)
+        if longest > 0:
+            scale = target_px / longest
 
     if scale != 1.0:
         rl.image_resize(badge_img,

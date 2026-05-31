@@ -197,7 +197,7 @@ def draw_inspect_3d(gc: Game_context):
     # size and rotated by the accumulated arcball transform.
     if len(gc.itens_hoje['to evaluate']) > 0 and not gc.gs.get("object_hidden"):
         name = gc.itens_hoje['to evaluate'][0].name
-        item_model = gc.models[name]
+        item_model = gc.inspect_model(name)
         scale, center = gc.object_fit[name]
 
         # local order: recentre to origin → arcball-rotate → scale to target size
@@ -259,6 +259,28 @@ def draw_inspect_3d(gc: Game_context):
     # Restore camera after starvation shake
     if gc.hunger <= 0:
         gc.camera.position = orig_cam_pos
+
+    # --- Draw HUD for Errors and Penalties ---
+    text = f"Erros: {gc.n_erros}   Penalidade: {gc.penalidade}".encode('utf-8')
+    rl.draw_text(text, 20, 20, 20, rl.WHITE)
+
+    # Remaining time, big and centered at the top using the main serif font.
+    # Only while an object is actually in front of the player — hidden during the
+    # tutorial and as soon as the object starts swapping away (obj_anim active).
+    if (len(gc.itens_hoje['to evaluate']) > 0
+            and not gc.gs.get("object_hidden")
+            and not gc.gs.get("obj_anim")):
+        font = gc.fonts["serif"]
+        sw = gc.VIRTUAL_W
+        timer_size = int(max(gc.VIRTUAL_H * 0.10, 22))
+        draw_text_box(
+            font,
+            f"{max(0, int(gc.item_time_left))}s",
+            rl.Vector2(sw / 2.0, timer_size + 100),
+            timer_size,
+            align="center",
+            shadow_offset=max(2, int(timer_size * 0.08)),
+        )
 
 
 def send_item(gc: Game_context):
@@ -423,7 +445,8 @@ def update_inspect(gc: Game_context, dt: float):
     if gc.current_mimic_eyes is not None and len(gc.itens_hoje.get('to evaluate', [])) > 0:
         name = gc.itens_hoje['to evaluate'][0].name
         anim = get_animation(gc, name)
-        gc.current_mimic_eyes.update(dt, gc.models[name], anim)
+        view_rot, cam_dir = gc.mimic_view_args()
+        gc.current_mimic_eyes.update(dt, gc.models[name], anim, view_rot, cam_dir)
 
     if (gc.gs.get("pending_first_enter")
             and not gc.transition.active
