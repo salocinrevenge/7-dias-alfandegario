@@ -26,29 +26,22 @@ def draw_menu(now: float, dst: rl.Rectangle, font: rl.Font):
     title_size = float(max(58, sh // 6))
     title = b"7 Dias de Alfandegario"
     tw = _measure(title, title_size)
-    ty = int(sh * 0.48) + offset_y
+    ty = int(sh * 0.43) + offset_y
     # Subtle shadow
-    _draw(title, cx - tw // 2 + 2, ty + 2, title_size, rl.Color(0, 0, 0, 120))
+    _draw(title, cx - tw // 2 + 5, ty + 5, title_size, rl.Color(0, 0, 0, 120))
     _draw(title, cx - tw // 2, ty, title_size, rl.Color(220, 220, 180, 255))
 
-    # # --- Subtitle ---
-    # sub_size = float(max(12, sh // 20))
-    # sub = b"Bem vindo ao seu novo trabalho! Cuidado!"
-    # subw = _measure(sub, sub_size)
-    # _draw(sub, cx - subw // 2 + 2, int(sh * 0.59) + 2, sub_size, rl.Color(0, 0, 0, 220))
-    # _draw(sub, cx - subw // 2, int(sh * 0.59), sub_size, rl.Color(210, 165, 110, 220))
-
     # # --- Divider line ---
-    # line_y = int(sh * 0.64)
-    # line_hw = sw // 6
-    # # rl.draw_line_ex((cx - line_hw, line_y), (cx + line_hw, line_y), 10, rl.Color(180, 140, 60, 120))
+    line_y = int(sh * 0.59)
+    line_hw = sw // 6
+    rl.draw_line_ex((cx - line_hw, line_y), (cx + line_hw, line_y), 5, rl.Color(220, 220, 180, 180))
 
     # # --- Prompt (pulsing) ---
-    # pulse = int((math.sin(now * 2.5) * 0.5 + 0.5) * 200 + 55)
-    # prompt_size = float(max(14, sh // 20))
-    # prompt = b"Aperte ENTER para jogar"
-    # pw = _measure(prompt, prompt_size)
-    # _draw(prompt, cx - pw // 2, int(sh * 0.65), prompt_size, rl.Color(240, 200, 80, pulse))
+    pulse = int((math.sin(now * 2.5) * 0.5 + 0.5) * 200 + 55)
+    prompt_size = float(max(14, sh // 20))
+    prompt = b"Clique ou aperte ENTER para jogar"
+    pw = _measure(prompt, prompt_size)
+    _draw(prompt, cx - pw // 2, int(sh * 0.60), prompt_size, rl.Color(220, 220, 180, pulse))
 
 def draw_menu_bg_into_texture(menu_bg_tex, VIRTUAL_W, VIRTUAL_H):
     """Fills the render texture with outside.png (cover-fit). Shader will paint this."""

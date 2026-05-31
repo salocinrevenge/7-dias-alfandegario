@@ -32,14 +32,12 @@ def draw_pause(font: rl.Font):
         rl.draw_text_ex(font, text, rl.Vector2(float(x), float(y)), size, 1, color)
 
     title = b"PAUSADO"
-    tw = _measure(title, 80)
-    _draw(title, cx - tw // 2, cy - 24, 80, rl.WHITE)
+    tw = _measure(title, 160)
+    _draw(title, cx - tw // 2, cy - 24, 160, rl.WHITE)
 
     for i, text in enumerate((b"[P] Resumir", b"[M] Menu Inicial")):
-        w = _measure(text, 40)
-        _draw(text, cx - w // 2, cy + 62 + i * 38, 40, rl.Color(180, 180, 180, 200))
-
-
+        w = _measure(text, 70)
+        _draw(text, cx - w // 2, cy + 190 + i * 88, 70, rl.Color(180, 180, 180, 200))
 
 
 
@@ -125,7 +123,7 @@ def update(gc: Game_context, dt: float):
     if not gc.transition.active or not gc.transition._fading_out:
             match gc.current_state:
                 case State.MENU:
-                    if rl.is_key_pressed(rl.KEY_ENTER):
+                    if rl.is_key_pressed(rl.KEY_ENTER) or rl.is_mouse_button_pressed(rl.MOUSE_BUTTON_LEFT):
                         gc.transition.start(State.INSPECT)
 
                 case State.INSPECT:
@@ -361,7 +359,7 @@ def blit_on_screen(gc: Game_context, render_tex=None, src_rect=None, painting_sh
             gc.player.draw_hud(dst)
             if gc.day_intro_timer > 0:
                 sw, sh = rl.get_screen_width(), rl.get_screen_height()
-                rl.draw_rectangle(0, 0, sw, sh, rl.Color(0, 0, 0, 180)) # Filtro escuro no fundo
+                # rl.draw_rectangle(0, 0, sw, sh, rl.Color(0, 0, 0, 240)) # Filtro escuro no fundo
                 
                 day_text = f"Dia {gc.dia_atual}"
                 chars_to_draw = int(gc.day_intro_char_count)
@@ -372,7 +370,8 @@ def blit_on_screen(gc: Game_context, render_tex=None, src_rect=None, painting_sh
                 font_size = int(sh * 0.15) # Texto bem maior e proporcional à tela
                 text_width = rl.measure_text_ex(gc.fonts["serif"], current_day_text, font_size, 1).x
 
-                rl.draw_text_ex(gc.fonts["serif"], current_day_text, rl.Vector2((sw - text_width) / 2, (sh - font_size) / 2), font_size, 1, rl.WHITE)
+                rl.draw_text_ex(gc.fonts["serif"], current_day_text, rl.Vector2((sw - text_width) / 2, (sh - font_size) / 2), font_size, 1, rl.BLACK)
+                rl.draw_text_ex(gc.fonts["serif"], current_day_text, rl.Vector2((sw - text_width) / 2 + 5, (sh - font_size) / 2 + 5), font_size, 1, rl.WHITE)
 
         case State.PAUSE:
             draw_pause(gc.fonts["serif"])
