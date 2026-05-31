@@ -305,6 +305,13 @@ class Game_context:
         self.items_correct_today = 0
         self.foods_eaten_today = 0
 
+        # Snapshot of the day that just ended, shown on the next "Dia X" card.
+        self.last_day_items_judged  = 0
+        self.last_day_items_correct = 0
+        self.last_day_errors        = 0
+        self.last_day_foods_eaten   = 0
+        self.last_day_hunger_pct    = 0
+
         # Cumulative stats (never reset, shown in end-game screen)
         self.total_items_judged = 0
         self.total_correct = 0
@@ -437,6 +444,15 @@ class Game_context:
         self.nausea_curse_active = False
         self.inversion_curse_active = False
         self.keyhole_curse_active = False
+        # Snapshot the finished day's stats BEFORE zeroing them, so the next
+        # morning's "Dia X" card can show the previous day's acertos/erros (the
+        # live counters are reset below for the new day).
+        self.last_day_items_judged  = self.items_judged_today
+        self.last_day_items_correct = self.items_correct_today
+        self.last_day_errors        = self.errors_today
+        self.last_day_foods_eaten   = self.foods_eaten_today
+        self.last_day_hunger_pct    = (int(self.hunger / self.hunger_max * 100)
+                                       if self.hunger_max > 0 else 0)
         self.errors_today = 0
         self.items_judged_today = 0
         self.items_correct_today = 0
@@ -496,6 +512,10 @@ class Game_context:
         """The badge image names to stamp for *item*, per its attributes."""
         a = item.atributos
         badges: list[str] = []
+        if a.get("REAL"):
+            badges.append("badges/crown")
+        if a.get("NOBRE"):
+            badges.append("badges/shield")
         if a.get("ALIADOS"):
             badges.append(random.choice(self._ALIADO_VARIANTS))
         if a.get("RIVAIS"):
@@ -724,13 +744,23 @@ class Game_context:
 
     def load_sounds(self):
         self.music = {}
-        # Load background music tracks
-        music_files = {
-            "menu": b"sounds/menu-music.mp3",
-            "gameplay": b"sounds/gameplay-music.mp3",
-            "derrota": b"sounds/derrota-music.mp3",
-            "vitoria": b"sounds/vitoria-music.mp3"
-        }
+        # Web (pygbag) uses the smaller, browser-friendly .ogg encodes; desktop
+        # uses the full-quality .mp3 tracks. raylib's WebGL/miniaudio build does
+        # not reliably decode mp3, and the mp3s would bloat the download.
+        if self.IS_WEB:
+            music_files = {
+                "menu":     b"sounds/menu-music-pygbag.ogg",
+                "gameplay": b"sounds/gameplay-music-pygbag.ogg",
+                "derrota":  b"sounds/derrota-music-pygbag.ogg",
+                "vitoria":  b"sounds/vitoria-music-pygbag.ogg",
+            }
+        else:
+            music_files = {
+                "menu":     b"sounds/menu-music.mp3",
+                "gameplay": b"sounds/gameplay-music.mp3",
+                "derrota":  b"sounds/derrota-music.mp3",
+                "vitoria":  b"sounds/vitoria-music.mp3",
+            }
         for name, path in music_files.items():
             import os
             if os.path.exists(path.decode('utf-8')):
@@ -746,6 +776,9 @@ class Game_context:
         candidates = []
         for i in range(len(self.tutorial_texts)):
             candidates.clear()
+            if self.IS_WEB:
+                # Browser-friendly encodes first.
+                candidates.append(f"sounds/intro{i+1}-pygbag.ogg")
             candidates.extend([
                 f"sounds/intro{i+1}.ogg",
                 f"sounds/intro{i+1}.mp3",
@@ -797,9 +830,10 @@ class Game_context:
 
             self.sounds[f"tutorial_{i+1}"] = sound_obj
 
-        # Pre-load the redo sound
+        # Pre-load the redo sound (browser-friendly encode on web).
+        redo_path = b"sounds/refazer-pygbag.ogg" if self.IS_WEB else b"sounds/refazer.ogg"
         try:
-            self.sounds["redo"] = rl.load_sound(b"sounds/refazer.ogg")
+            self.sounds["redo"] = rl.load_sound(redo_path)
         except Exception:
             self.sounds["redo"] = None
         # Backup original day 1 tutorial

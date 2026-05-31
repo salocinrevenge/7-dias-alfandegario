@@ -389,13 +389,15 @@ def blit_on_screen(gc: Game_context, render_tex=None, src_rect=None, screen_shad
                                 rl.Vector2((sw - text_width) / 2, sh * 0.38),
                                 font_size, 1, rl.WHITE)
 
-                # Day summary stats (after title is fully typed, only day 2+)
+                # Day summary stats (after title is fully typed, only day 2+).
+                # Shows the day that JUST ENDED — the live counters were already
+                # reset for the new day, so read the snapshot taken at rollover.
                 if chars_to_draw >= len(day_text) and gc.dia_atual > 1:
-                    total = gc.items_judged_today
-                    correct = gc.items_correct_today
-                    errors = gc.errors_today
-                    ate = gc.foods_eaten_today
-                    hunger_pct = int(gc.hunger / gc.hunger_max * 100) if gc.hunger_max > 0 else 0
+                    total = gc.last_day_items_judged
+                    correct = gc.last_day_items_correct
+                    errors = gc.last_day_errors
+                    ate = gc.last_day_foods_eaten
+                    hunger_pct = gc.last_day_hunger_pct
 
                     lines = [
                         f"Itens avaliados: {total}",
@@ -491,7 +493,8 @@ async def main():
     lens_zoom_loc   = rl.get_shader_location(gc.magnifier_shader, b"lensZoom")
 
     # --- Nausea curse shader — applied to the WHOLE render texture at blit.
-    nausea_shader = rl.load_shader(b"", b"shaders/nausea.fs")
+    _nfs = b"shaders/nausea_web.fs" if gc.IS_WEB else b"shaders/nausea.fs"
+    nausea_shader = rl.load_shader(b"", _nfs)
     nausea_time_loc = rl.get_shader_location(nausea_shader, b"seconds")
     gc.nausea_curse_active = False # Start deactivated
 

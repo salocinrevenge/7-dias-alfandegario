@@ -10,6 +10,7 @@ from transition import Transition
 import random
 from item import Item, OBJECT_MODELS
 from animation import add_shake, TweenAnimation
+from audio_effects import AudioEffects
 from mimic import Mimic, unload_appendage_models
 from badge import attach_badge
 
@@ -26,7 +27,7 @@ _PAPER_LINES = [
     b"<h1>[ ] Rival ?",
     b"<small>",
     b"",
-    b"<h2>                                               Rejeitar Aceitar",
+    b"<h2>              Rejeitar   Comer             Aceitar",
 ]
 
 PAPER_TW, PAPER_TH = 512, 724
@@ -45,13 +46,16 @@ def _is_button_line(text: bytes) -> bool:
 
 
 def _button_rects(font: rl.Font, span: dict) -> dict:
-    """Sub-rects of the two words on the Aceitar/Rejeitar span (texture coords)."""
+    """Sub-rects of the three words (Rejeitar / Comer / Aceitar) in texture coords."""
     text, size = span["text"], span["size"]
     x, y, h    = span["x"], span["y"], span["h"]
-    r_off = text.find(b"Aceitar")
+    c_off = text.find(b"Comer")
+    a_off = text.find(b"Aceitar")
     return {
-        "rejeitar":  (x, y, quad_text.measure(font, b"Rejeitar", size), h),
-        "aceitar": (x + quad_text.measure(font, text[:r_off], size),
+        "rejeitar": (x, y, quad_text.measure(font, b"Rejeitar", size), h),
+        "comer":    (x + quad_text.measure(font, text[:c_off], size),
+                     y, quad_text.measure(font, b"Comer", size), h),
+        "aceitar":  (x + quad_text.measure(font, text[:a_off], size),
                      y, quad_text.measure(font, b"Aceitar", size), h),
     }
 
@@ -74,17 +78,20 @@ def parse_paper_items(layout: list[dict], font: rl.Font) -> list[dict]:
             check_idx += 1
         elif _is_button_line(text):
             rects = _button_rects(font, span)
-            items.append({"type": "button", "key": "aceitar",  "rect": rects["aceitar"]})
             items.append({"type": "button", "key": "rejeitar", "rect": rects["rejeitar"]})
+            items.append({"type": "button", "key": "comer",    "rect": rects["comer"]})
+            items.append({"type": "button", "key": "aceitar",  "rect": rects["aceitar"]})
     return items
 
 
 def _bake_paper_texture(paper_tex, font: rl.Font, layout: list[dict],
                         states: dict | None = None,
-                        hovered_key: str | None = None) -> rl.Texture2D:
+                        hovered_key: str | None = None,
+                        is_food: bool = False) -> rl.Texture2D:
     """Render the paper background + tagged text into a flip-corrected Texture2D.
 
     hovered_key: key of the button whose word is drawn in _INK_HOVER.
+    is_food: if True, a third "Comer" button is drawn between Rejeitar and Aceitar.
     """
     if states is None:
         states = {}
@@ -113,10 +120,17 @@ def _bake_paper_texture(paper_tex, font: rl.Font, layout: list[dict],
             r = _button_rects(font, span)
             ax, ay, _, _ = r["aceitar"]
             rx, ry, _, _ = r["rejeitar"]
-            quad_text.draw_text(font, b"Aceitar",  ax, ay, span["size"],
-                                _INK_HOVER if hovered_key == "aceitar"  else _INK_NORMAL)
+            cx, cy, _, _ = r["comer"]
+            # Rejeitar — always visible
             quad_text.draw_text(font, b"Rejeitar", rx, ry, span["size"],
                                 _INK_HOVER if hovered_key == "rejeitar" else _INK_NORMAL)
+            # Comer — only when the item is food
+            if is_food:
+                quad_text.draw_text(font, b"Comer", cx, cy, span["size"],
+                                    _INK_HOVER if hovered_key == "comer" else _INK_NORMAL)
+            # Aceitar — always visible
+            quad_text.draw_text(font, b"Aceitar", ax, ay, span["size"],
+                                _INK_HOVER if hovered_key == "aceitar" else _INK_NORMAL)
 
         elif text:
             quad_text.draw_span(font, span, _INK_NORMAL)
@@ -235,8 +249,10 @@ class Game_context:
         self.player             = None
         self.n_erros = 0
         self.penalidade = 0
-        self.penalidade_to_day = 5
-        self.erros_to_fire = 50
+        # Per-day penalty allowance before the day must be redone (penalidade is
+        # reset every morning, so this is "mistakes tolerated in a single day").
+        self.penalidade_to_day = 8
+        self.erros_to_fire = 60
         self.dia_atual = 0
         self.n_itens_dias = {
             1: 3,
@@ -253,15 +269,15 @@ class Game_context:
         }
 
         self.error_costs = {
-            "AMALDICOADO": 5,
-            "VENENOSO": 4,
+            "AMALDICOADO": 4,
+            "VENENOSO": 3,
             "RADIOATIVO": 1,
-            "REAL": 3,
-            "NOBRE": 2,
+            "REAL": 2,
+            "NOBRE": 1,
             "ALIADOS": 1,
-            "RIVAIS": 2,
+            "RIVAIS": 1,
             "REJECT": 1,
-            "MIMICO": 7,
+            "MIMICO": 5,
             "MORTE": 10,
         }
         self.positive_rejects = ["REAL", "NOBRE", "ALIADOS"]
@@ -283,8 +299,25 @@ class Game_context:
         self.count_until_end_day = self.reset_count_until_end_day
         self.created_room = False
 
+        # Per-day stats (reset each morning, shown in day-end summary)
+        self.errors_today = 0
+        self.items_judged_today = 0
+        self.items_correct_today = 0
+        self.foods_eaten_today = 0
+
+        # Cumulative stats (never reset, shown in end-game screen)
+        self.total_items_judged = 0
+        self.total_correct = 0
+        self.total_foods = 0
+
         self.item_time_max = 60.0
         self.item_time_left = 60.0
+
+        # --- Hunger system ---
+        self.hunger_max = 100.0
+        self.hunger = self.hunger_max
+        self.hunger_decay = 1.2          # points lost per second
+        self.hunger_starve_penalty = 0.0 # accumulates when starving, triggers errors
 
         self.reset_tutorial_texts()
 
@@ -302,6 +335,10 @@ class Game_context:
         self.current_item_model_name = None
         self.setup_animations()
         self.load_sounds()
+
+        # Per-frame audio processor. Created once for the whole session (it loads
+        # procedural SFX); reset_game() reuses this instance instead of leaking it.
+        self.audio_effects = AudioEffects(self)
 
     def reset_tutorial_texts(self):
         self.tutorial_texts = [
@@ -391,6 +428,19 @@ class Game_context:
             
         self.day_intro_timer = 2.5
         self.day_intro_char_count = 0.0
+        self.hunger = self.hunger_max
+        self.hunger_starve_penalty = 0.0
+        # penalidade is judged per-day: start each morning with a clean slate so
+        # the redo threshold measures only the current day's mistakes.
+        self.penalidade = 0
+        # A new day wipes any curses inflicted the previous day.
+        self.nausea_curse_active = False
+        self.inversion_curse_active = False
+        self.keyhole_curse_active = False
+        self.errors_today = 0
+        self.items_judged_today = 0
+        self.items_correct_today = 0
+        self.foods_eaten_today = 0
         print(f"Starting day {self.dia_atual}...")
         self.itens_hoje['to evaluate'] = [Item() for _ in range(self.n_itens_dias.get(self.dia_atual, 15))]
         self.itens_hoje['evaluated'] = []
@@ -433,6 +483,7 @@ class Game_context:
             self.current_mimic_eyes = None
 
         self.apply_badges_for_current()
+
 
     # Badge images (under textures/) keyed by the Item attribute that triggers
     # them. Aliado/Inimigo have interchangeable variants; the curses are stamped
@@ -673,13 +724,23 @@ class Game_context:
 
     def load_sounds(self):
         self.music = {}
-        # Load background music tracks
-        music_files = {
-            "menu": b"sounds/menu-music.ogg",
-            "gameplay": b"sounds/gameplay-music.ogg",
-            "derrota": b"sounds/derrota-music.ogg",
-            "vitoria": b"sounds/vitoria-music.ogg"
-        }
+        # Web (pygbag) uses the smaller, browser-friendly .ogg encodes; desktop
+        # uses the full-quality .mp3 tracks. raylib's WebGL/miniaudio build does
+        # not reliably decode mp3, and the mp3s would bloat the download.
+        if self.IS_WEB:
+            music_files = {
+                "menu":     b"sounds/menu-music-pygbag.ogg",
+                "gameplay": b"sounds/gameplay-music-pygbag.ogg",
+                "derrota":  b"sounds/derrota-music-pygbag.ogg",
+                "vitoria":  b"sounds/vitoria-music-pygbag.ogg",
+            }
+        else:
+            music_files = {
+                "menu":     b"sounds/menu-music.ogg",
+                "gameplay": b"sounds/gameplay-music.ogg",
+                "derrota":  b"sounds/derrota-music.ogg",
+                "vitoria":  b"sounds/vitoria-music.ogg",
+            }
         for name, path in music_files.items():
             import os
             if os.path.exists(path.decode('utf-8')):
@@ -695,6 +756,9 @@ class Game_context:
         candidates = []
         for i in range(len(self.tutorial_texts)):
             candidates.clear()
+            if self.IS_WEB:
+                # Browser-friendly encodes first.
+                candidates.append(f"sounds/intro{i+1}-pygbag.ogg")
             candidates.extend([
                 f"sounds/intro{i+1}.ogg",
                 f"sounds/intro{i+1}.ogg",
@@ -746,20 +810,21 @@ class Game_context:
 
             self.sounds[f"tutorial_{i+1}"] = sound_obj
 
-        # Pre-load the redo sound
+        # Pre-load the redo sound (browser-friendly encode on web).
+        redo_path = b"sounds/refazer-pygbag.ogg" if self.IS_WEB else b"sounds/refazer.ogg"
         try:
-            self.sounds["redo"] = rl.load_sound(b"sounds/refazer.ogg")
+            self.sounds["redo"] = rl.load_sound(redo_path)
         except Exception:
             self.sounds["redo"] = None
         # Backup original day 1 tutorial
         self.sounds["tutorial_1_original"] = self.sounds.get("tutorial_1")
 
 
-    def rebake_paper(self, hovered_key: str | None = None):
+    def rebake_paper(self, hovered_key: str | None = None, is_food: bool = False):
         """Re-render the paper texture (checkbox states + optional button highlight) and hot-swap on the model."""
         states  = self.gs.get("paper_states", {})
         new_tex = _bake_paper_texture(self.textures["paper_raw"], self.fonts["serif"],
-                                      self.paper_layout, states, hovered_key)
+                                      self.paper_layout, states, hovered_key, is_food)
         rl.unload_texture(self.textures["paper"])
         self.textures["paper"] = new_tex
         self.models["paper"].materials[0].maps[rl.MATERIAL_MAP_DIFFUSE].texture = new_tex
@@ -815,6 +880,8 @@ class Game_context:
                     except Exception:
                         pass
                         
+        if hasattr(self, 'audio_effects') and self.audio_effects:
+            self.audio_effects.unload()
         if hasattr(self, 'music'):
             for m in self.music.values():
                 if m is not None:
@@ -838,17 +905,6 @@ class Game_context:
     # SCENE STATE
     # ---------------------------------------------------------------------------
     def make_scene_state(self) -> dict:
-        # ----------------------------------------------------------------------------
-        # CAMERA INITIAL ORIENTATION (pointing at the table center)
-        # ----------------------------------------------------------------------------
-        _dx, _dy, _dz = (self.CAM_TARGET.x - self.CAM_POS.x,
-                    self.CAM_TARGET.y - self.CAM_POS.y,
-                    self.CAM_TARGET.z - self.CAM_POS.z)
-        
-
-        _dl = math.sqrt(_dx*_dx + _dy*_dy + _dz*_dz) or 1.0
-        self._INIT_CAM_YAW   = math.atan2(_dx / _dl, _dz / _dl)
-        self._INIT_CAM_PITCH = math.asin(_dy / _dl)
         self.gs = {
             "paper_open":   False,
             "paper_states":      {},    # key → bool for checkboxes
@@ -865,15 +921,69 @@ class Game_context:
             "spin_angle":        0.0,
             "spin_axis":         (0.0, 1.0, 0.0),
             "drag_dir":          None,
-            "debug":        False,
-            "cam_yaw":      self._INIT_CAM_YAW,
-            "cam_pitch":    self._INIT_CAM_PITCH,
-            "cam_pos":      Vector3(self.CAM_POS.x, self.CAM_POS.y, self.CAM_POS.z),
+            "food_msg":     "",
+            "food_msg_timer": 0.0,
         }
+
+    def eat_food(self, item):
+        """Called when the player rejects a food item — confiscate and eat it.
+        Returns a description string for HUD feedback."""
+        if not item.is_food:
+            return ""
+        restore = item.hunger_restore
+        self.hunger += restore
+        if self.hunger > self.hunger_max:
+            self.hunger = self.hunger_max
+        if self.hunger < 0:
+            self.hunger = 0
+
+        self.apply_curses(item)
+        tags = []
+        if item.atributos.get("VENENOSO"):
+            tags.append("envenenado")
+        if item.atributos.get("AMALDICOADO"):
+            tags.append("amaldicoado")
+        if item.atributos.get("RADIOATIVO"):
+            tags.append("radioativo")
+        if item.atributos.get("MIMICO"):
+            tags.append("falso")
+
+        if restore > 0:
+            return f"+{int(restore)} fome"
+        elif restore < 0:
+            bonus = ", ".join(tags)
+            return f"{int(restore)} fome" + (f" ({bonus})" if bonus else "")
+        else:
+            return "nem era comida..."
+
+    def update_hunger(self, dt: float):
+        """Decay hunger over time. Only when an item is actually on the table."""
+        if self.current_state not in (State.INSPECT, State.INTRO):
+            return
+        if self.gs.get("object_hidden") or self.gs.get("pending_first_enter"):
+            return
+        self.hunger -= self.hunger_decay * dt
+        if self.hunger <= 0:
+            self.hunger = 0
+            self.hunger_starve_penalty += dt * 1.2
+            if self.hunger_starve_penalty >= 1.0:
+                self.hunger_starve_penalty -= 1.0
+                self.n_erros += 1
+
+    def apply_curses(self, item):
+        """Activate the visual/audio curse effects carried by a cursed item.
+        Mirrors the curse mapping used when eating tainted food."""
+        if item.atributos.get("VENENOSO"):
+            self.nausea_curse_active = True
+        if item.atributos.get("AMALDICOADO"):
+            self.inversion_curse_active = True
+        if item.atributos.get("RADIOATIVO"):
+            self.keyhole_curse_active = True
 
     def compute_negatives(self, acao: str) -> list[str]:
         penalidade = self.penalidade
         n_erros = self.n_erros
+        n_erros_before = n_erros
         
         for atributo, valor in self.properties_on_list.items():
             if valor != self.itens_hoje['to evaluate'][0].atributos[atributo]:
@@ -884,9 +994,30 @@ class Game_context:
                 if atributo in self.negative_acept and acao == "aceitar":
                     penalidade += self.error_costs[atributo]
         if acao == "aceitar":
+            # Accepting a cursed item inflicts its curse on the player.
+            self.apply_curses(self.itens_hoje['to evaluate'][0])
             if self.itens_hoje['to evaluate'][0].atributos["MIMICO"]:
                 penalidade += self.error_costs["MIMICO"] # Passou mimico
             if self.itens_hoje['to evaluate'][0].atributos["MORTE"]:
+                self.audio_effects.play("explosion")
                 self.transition.start(State.GAME_OVER_EXPLODED)
         self.n_erros = n_erros
         self.penalidade = penalidade
+
+        # Per-day tracking
+        errors_this_item = n_erros - n_erros_before
+        self.items_judged_today += 1
+        self.total_items_judged += 1
+        if errors_this_item == 0:
+            self.items_correct_today += 1
+            self.total_correct += 1
+        self.errors_today += errors_this_item
+
+    def reset_effects(self):
+        """Clear all active curses and hunger — called on restart / return to menu."""
+        self.nausea_curse_active = False
+        self.inversion_curse_active = False
+        self.keyhole_curse_active = False
+        self.hunger = self.hunger_max
+        self.hunger_starve_penalty = 0.0
+        self.painting_enabled = True
