@@ -1,3 +1,4 @@
+import sys
 import pyray as rl
 from pyray import Vector3, Vector2
 import math
@@ -47,6 +48,7 @@ def _set_shader_resolution(shader, loc: int, w: float, h: float):
     """Push the render-texture resolution into the painting shader."""
     res = rl.ffi.new("float[2]", [w, h])
     rl.set_shader_value(shader, loc, res, rl.SHADER_UNIFORM_VEC2)
+
 
 
 
@@ -197,8 +199,8 @@ def blit_on_screen(gc: Game_context, render_tex=None, src_rect=None, painting_sh
     # ---- Overlays (unaffected by the painting shader) ---------------
     match gc.current_state:
         case State.MENU:
-            draw_menu(gc.now, dst, gc.textures["tropiland_font"])
-            
+            draw_menu(gc.now, dst, gc.fonts["serif"])
+
         case State.INSPECT:
             gc.player.draw_hud(dst)
             if gc.day_intro_timer > 0:
@@ -212,12 +214,12 @@ def blit_on_screen(gc: Game_context, render_tex=None, src_rect=None, painting_sh
                     
                 current_day_text = day_text[:chars_to_draw].encode('utf-8')
                 font_size = int(sh * 0.15) # Texto bem maior e proporcional à tela
-                text_width = rl.measure_text_ex(gc.textures["tropiland_font"], current_day_text, font_size, 1).x
-                
-                rl.draw_text_ex(gc.textures["tropiland_font"], current_day_text, rl.Vector2((sw - text_width) / 2, (sh - font_size) / 2), font_size, 1, rl.WHITE)
+                text_width = rl.measure_text_ex(gc.fonts["serif"], current_day_text, font_size, 1).x
+
+                rl.draw_text_ex(gc.fonts["serif"], current_day_text, rl.Vector2((sw - text_width) / 2, (sh - font_size) / 2), font_size, 1, rl.WHITE)
 
         case State.PAUSE:
-            draw_pause(gc.textures["tropiland_font"])
+            draw_pause(gc.fonts["serif"])
             gc.player.draw_hud(dst)
 
         case State.INTRO:
@@ -241,9 +243,14 @@ def blit_on_screen(gc: Game_context, render_tex=None, src_rect=None, painting_sh
 async def main():
 
     rl.set_config_flags(rl.FLAG_WINDOW_RESIZABLE)
-    rl.init_window(1000, 700, b"The Enigma")
+    rl.init_window(1480, 800, b"The Enigma")
     rl.set_target_fps(60)
     rl.enable_cursor()
+
+    if sys.platform != "emscripten":
+        monitor = rl.get_current_monitor()
+        rl.set_window_size(rl.get_monitor_width(monitor), rl.get_monitor_height(monitor))
+        rl.toggle_fullscreen()
 
     gc = Game_context()
     gc.player = Player(gc)
@@ -256,11 +263,13 @@ async def main():
 
     # --- Painting shader (Kuwahara) ---
     # WebGL (pygbag/Emscripten) needs GLSL ES 1.0; desktop uses GLSL 3.3.
-    _fs = b"textures/shaders/painting_web.fs" if gc.IS_WEB else b"textures/shaders/painting.fs"
+    _fs = b"shaders/painting_web.fs" if gc.IS_WEB else b"shaders/painting.fs"
     painting_shader  = rl.load_shader(b"", _fs)
     shader_res_loc   = rl.get_shader_location(painting_shader, b"resolution")
     _set_shader_resolution(painting_shader, shader_res_loc, gc.VIRTUAL_W, gc.VIRTUAL_H)
 
+    # debug
+    gc.make_scene_state()
 
     while not rl.window_should_close():
         # dt update
@@ -288,6 +297,7 @@ async def main():
     rl.unload_render_texture(render_tex)
     gc.unload_models()
     gc.unload_textures()
+    gc.unload_fonts()
     rl.close_window()
 
 
