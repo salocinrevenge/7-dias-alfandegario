@@ -6,7 +6,7 @@ import time
 
 from state import State
 from transition import Transition
-
+from item import Item
 
 class Game_context:
     def __init__(self):
@@ -61,7 +61,7 @@ class Game_context:
         self.player             = None
         self.player_cartas_odio = 0
         self.odio_to_day = 5
-        self.dia_atual = 1
+        self.dia_atual = 0
         self.n_itens_dias = {
             1: 3,
             2: 5,
@@ -75,9 +75,41 @@ class Game_context:
             'to evaluate': [],
             'evaluated': []
         }
+        self.properties_on_list = {
+            "VENENOSO": False,
+            "RADIOATIVO": False,
+            "REAL": False,
+            "NOBRE": False,
+            "ALIADOS": [],
+            "RIVAL": [],
+            "MIMICO": False
+        }
 
-    def start_day(self):
-        self.itens_hoje['to evaluate'] = list(range(1, self.n_itens_dias[self.dia_atual]+1))
+        self.error_costs = {
+            "VENENOSO": 4,
+            "RADIOATIVO": 1,
+            "REAL": 3,
+            "NOBRE": 2,
+            "MIMICO": 7,
+            "MALDIÇÕES": 5,
+            "ALIADOS": 1,
+            "RIVAIS": 2,
+            "REJECT": 1
+        }
+        self.positive_rejects = ["REAL", "NOBRE", "ALIADOS"]
+
+        self.reset_count_until_end_day = 100
+        self.count_until_end_day = self.reset_count_until_end_day
+        self.created_room = False
+
+
+    def start_new_day(self):
+        self.created_room = True
+        self.make_scene_state()
+        self.transition.start(State.INSPECT)
+        self.dia_atual += 1
+        print(f"Starting day {self.dia_atual}...")
+        self.itens_hoje['to evaluate'] = [Item() for _ in range(self.n_itens_dias.get(self.dia_atual, 15))]
         self.itens_hoje['evaluated'] = []
 
     def load_textures(self):

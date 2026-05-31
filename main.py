@@ -5,7 +5,7 @@ import asyncio
 import time
 
 
-from inspecting import draw_inspect_3d, update_inspect
+from inspecting import draw_inspect_3d, update_inspect, draw_tutorial_talk
 from menu import draw_menu, draw_menu_bg_into_texture
 from game_context import Game_context
 from state import State
@@ -92,25 +92,34 @@ def update(gc: Game_context, dt: float):
 
     general_inputs(gc)
     if not gc.transition.active or not gc.transition._fading_out:
-            if gc.current_state == State.MENU:
-                if rl.is_key_pressed(rl.KEY_ENTER):
-                    gc.make_scene_state()
-                    gc.transition.start(State.INSPECT)
+            match gc.current_state:
+                case State.MENU:
+                    if rl.is_key_pressed(rl.KEY_ENTER):
+                        gc.transition.start(State.INTRO)
 
-            elif gc.current_state == State.INSPECT:
-                if rl.is_key_pressed(rl.KEY_P):
-                    if gc.gs.get("debug"):
-                        gc.gs["debug"] = False
-                        rl.enable_cursor()
-                    gc.transition.start(State.PAUSE)
-                else:
-                    update_inspect(gc, dt)
+                case State.INSPECT:
+                    # Se ainda n tem gc.gs entao chama o make_scene_state
+                    if not gc.created_room:
+                        gc.start_new_day()
+                    if rl.is_key_pressed(rl.KEY_P):
+                        if gc.gs.get("debug"):
+                            gc.gs["debug"] = False
+                            rl.enable_cursor()
+                        gc.transition.start(State.PAUSE)
+                    else:
+                        update_inspect(gc, dt)
 
-            elif gc.current_state == State.PAUSE:
-                if rl.is_key_pressed(rl.KEY_P):
-                    gc.transition.start(State.INSPECT)
-                elif rl.is_key_pressed(rl.KEY_M):
-                    gc.transition.start(State.MENU)
+                case State.PAUSE:
+                    if rl.is_key_pressed(rl.KEY_P):
+                        gc.transition.start(State.INSPECT)
+                    elif rl.is_key_pressed(rl.KEY_M):
+                        gc.transition.start(State.MENU)
+                case State.INTRO:
+                    # Leia qualquer input do mouse ou teclado para pular a introdução
+                    if not hasattr(gc, "gs"):
+                        gc.make_scene_state()
+                    if rl.is_key_pressed(rl.KEY_ENTER) or rl.is_mouse_button_pressed(rl.MOUSE_BUTTON_LEFT):
+                        gc.transition.start(State.INSPECT)
 
 def draw_on_texture(gc: Game_context, render_tex):
     rl.begin_texture_mode(render_tex)
@@ -130,6 +139,9 @@ def draw_on_texture(gc: Game_context, render_tex):
                 draw_inspect_3d(gc)
             else:
                 rl.clear_background(rl.BLACK)
+
+        case State.INTRO:
+            draw_inspect_3d(gc)
 
     rl.end_texture_mode()
 
@@ -165,6 +177,10 @@ def blit_on_screen(gc: Game_context, render_tex=None, src_rect=None, painting_sh
         case State.PAUSE:
             draw_pause(gc.textures["tropiland_font"])
             gc.player.draw_hud(dst)
+
+        case State.INTRO:
+            gc.player.draw_hud(dst)
+            draw_tutorial_talk(gc)
 
     # Transition fade drawn on top of everything
     gc.transition.draw()
