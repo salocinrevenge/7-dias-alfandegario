@@ -4,7 +4,7 @@ from pyray import Vector2, Vector3
 
 from game_context import Game_context, PAPER_TW, PAPER_TH
 from utils import get_scaled_rect, _screen_to_virtual, wrap_text, draw_text_box
-from animation import get_anim_offset
+from animation import get_anim_offset, get_animation
 
 
 # ---------------------------------------------------------------------------
@@ -183,6 +183,10 @@ def draw_inspect_3d(gc: Game_context):
             gc.OBJECT_POS.z + obj_offset.z + swap.z,
         )
         rl.draw_model(item_model, obj_pos, 1.0, rl.WHITE)
+
+        if gc.current_mimic_eyes is not None:
+            gc.current_mimic_eyes.draw(gc.camera, item_model.transform, obj_pos)
+
         item_model.transform = rl.matrix_identity()
 
     # Paper is always drawn on top of the table (depth test off avoids z-fighting).
@@ -204,6 +208,7 @@ def send_item(gc: Game_context):
                 n_erros += 1
                 penalidade += gc.error_costs[atributo]
     gc.player_cartas_odio += n_erros
+    gc._ensure_mimic_eyes_for_current()
 
 
 # ---------------------------------------------------------------------------
@@ -311,8 +316,11 @@ def update_inspect(gc: Game_context, dt: float):
         gc.player.update_debug_camera(dt)
         return
 
-    # Arc the first object in only once the day transition has settled AND the
-    # "Dia X" title animation has finished playing.
+    if gc.current_mimic_eyes is not None and len(gc.itens_hoje.get('to evaluate', [])) > 0:
+        name = gc.itens_hoje['to evaluate'][0].name
+        anim = get_animation(gc, name)
+        gc.current_mimic_eyes.update(dt, gc.models[name], anim)
+
     if (gc.gs.get("pending_first_enter")
             and not gc.transition.active
             and gc.day_intro_timer <= 0):
