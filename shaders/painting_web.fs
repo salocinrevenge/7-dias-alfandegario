@@ -6,6 +6,23 @@ varying vec4 fragColor;
 uniform sampler2D texture0;
 uniform vec2 resolution;
 
+// --- Magnifying-glass lens (RMB); lensZoom == 1.0 disables it ----------
+uniform vec2  lensCenter;
+uniform float lensRadius;
+uniform float lensZoom;
+
+vec2 applyLens(vec2 uv, out float rim) {
+    rim = 0.0;
+    if (lensZoom <= 1.001) return uv;
+    vec2  d      = uv - lensCenter;
+    float aspect = resolution.x / resolution.y;
+    float r      = length(vec2(d.x * aspect, d.y));
+    float m      = smoothstep(lensRadius, lensRadius * 0.88, r);
+    rim = smoothstep(lensRadius * 0.90, lensRadius * 0.97, r)
+          * (1.0 - smoothstep(lensRadius * 0.99, lensRadius * 1.04, r));
+    return mix(uv, lensCenter + d / lensZoom, m);
+}
+
 // ---------------------------------------------------------------------------
 // Kuwahara filter — WebGL / GLSL ES 1.0 version.
 //
@@ -19,6 +36,9 @@ uniform vec2 resolution;
 //     we unroll the 4-quadrant loop manually to be safe
 // ---------------------------------------------------------------------------
 void main() {
+    float rim;
+    vec2 center = applyLens(fragTexCoord, rim);
+
     vec2 texel = 1.0 / resolution;
 
     // Kernel half-size. Keep as a literal so GLSL ES loop-bound rules are met.
@@ -35,21 +55,21 @@ void main() {
     // constant integral expressions — float loop vars avoid that restriction.
     for (float j = -R; j <= 0.0; j += 1.0) {
         for (float i = -R; i <= 0.0; i += 1.0) {
-            vec3 c = texture2D(texture0, fragTexCoord + vec2(i, j) * texel).rgb;
+            vec3 c = texture2D(texture0, center + vec2(i, j) * texel).rgb;
             mean0 += c;  sq0 += c * c;
         }
         for (float i = 0.0; i <= R; i += 1.0) {
-            vec3 c = texture2D(texture0, fragTexCoord + vec2(i, j) * texel).rgb;
+            vec3 c = texture2D(texture0, center + vec2(i, j) * texel).rgb;
             mean1 += c;  sq1 += c * c;
         }
     }
     for (float j = 0.0; j <= R; j += 1.0) {
         for (float i = -R; i <= 0.0; i += 1.0) {
-            vec3 c = texture2D(texture0, fragTexCoord + vec2(i, j) * texel).rgb;
+            vec3 c = texture2D(texture0, center + vec2(i, j) * texel).rgb;
             mean2 += c;  sq2 += c * c;
         }
         for (float i = 0.0; i <= R; i += 1.0) {
-            vec3 c = texture2D(texture0, fragTexCoord + vec2(i, j) * texel).rgb;
+            vec3 c = texture2D(texture0, center + vec2(i, j) * texel).rgb;
             mean3 += c;  sq3 += c * c;
         }
     }
@@ -76,6 +96,9 @@ void main() {
     // Slight saturation boost (+20 %) for a more vivid painted look
     vec3 grey = vec3(dot(result, vec3(0.299, 0.587, 0.114)));
     result     = mix(grey, result, 1.20);
+
+    // Darken the thin glass rim so the lens edge reads as a lens.
+    result *= (1.0 - 0.45 * rim);
 
     gl_FragColor = vec4(result, 1.0) * fragColor;
 }
