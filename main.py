@@ -131,6 +131,9 @@ def _advance_tutorial(gc: Game_context):
         # Tutorial done — drop straight back into day 1 (no fade); the first
         # object then arcs in.
         gc.tutorial_seen = True
+        # Restart the day intro timer so 'Dia X' shows up NOW
+        gc.day_intro_timer = 2.5
+        gc.day_intro_char_count = 0.0
         gc.current_state = State.INSPECT
 
 
