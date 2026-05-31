@@ -140,8 +140,8 @@ class Game_context:
         # ---------------------------------------------------------------------------
         # RENDER RESOLUTION
         # ---------------------------------------------------------------------------
-        self.VIRTUAL_W = 960 * 0.5
-        self.VIRTUAL_H = 720 * 0.5
+        self.VIRTUAL_W = int(960 * 0.5)
+        self.VIRTUAL_H = int(720 * 0.5)
 
         # ---------------------------------------------------------------------------
         # SCENE CONSTANTS
@@ -206,6 +206,7 @@ class Game_context:
         self.current_state      = State.INSPECT
         self.prev_inspect_drawn = False
         self.transition         = Transition()
+        self.start_time         = time.time()
         self.prev_time          = time.time()
         self.now                = self.prev_time
         self.player             = None
