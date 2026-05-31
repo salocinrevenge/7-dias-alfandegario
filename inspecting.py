@@ -4,7 +4,7 @@ from pyray import Vector2, Vector3
 
 from game_context import Game_context, PAPER_TW, PAPER_TH
 from utils import get_scaled_rect, _screen_to_virtual, wrap_text, draw_text_box
-from animation import get_anim_offset
+from animation import get_anim_offset, get_animation
 
 
 # ---------------------------------------------------------------------------
@@ -146,12 +146,30 @@ def _draw_paper(gc: Game_context):
 
 def draw_inspect_3d(gc: Game_context):
     rl.clear_background(rl.BLACK)
+
+    # The Kuwahara painting filter is applied to the background image only,
+    # giving it a painted look while the 3D table/objects stay crisp.
+    if gc.painting_enabled:
+        rl.begin_shader_mode(gc.painting_shader)
     rl.draw_texture_pro(
         gc.textures["bg"],
         rl.Rectangle(0, 0, gc.textures["bg"].width, gc.textures["bg"].height),
         rl.Rectangle(0, 0, gc.VIRTUAL_W, gc.VIRTUAL_H),
         Vector2(0, 0), 0.0, rl.Color(245, 185, 185, 255),
     )
+    if gc.painting_enabled:
+        rl.end_shader_mode()
+
+    # Dust motes float in screen space behind the table/objects (drawn before
+    # the 3D pass, which renders on top of them).
+    gc.particles.draw(gc.VIRTUAL_W, gc.VIRTUAL_H)
+
+    # Feed the camera position to the Blinn-Phong shader for specular highlights.
+    cam = gc.camera.position
+    rl.set_shader_value(
+        gc.lighting_shader, gc.lighting_viewpos_loc,
+        rl.ffi.new("float[3]", [cam.x, cam.y, cam.z]), rl.SHADER_UNIFORM_VEC3)
+
     rl.begin_mode_3d(gc.camera)
 
     table_offset = get_anim_offset(gc, "table")
@@ -182,8 +200,40 @@ def draw_inspect_3d(gc: Game_context):
             gc.OBJECT_POS.y + obj_offset.y + swap.y,
             gc.OBJECT_POS.z + obj_offset.z + swap.z,
         )
+
+        # --- Planar projected shadow on the table ---------------------------
+        # Flatten the object's world geometry onto the table plane from the
+        # spotlight and paint it a single SOLID colour. Drawing opaque (alpha
+        # 255) is what keeps it clean: the flattened mesh self-overlaps, and a
+        # translucent fill would stack those layers into noisy banding, while a
+        # solid colour just writes the same value every time → a flat silhouette.
+        world_mat  = rl.matrix_multiply(mat, rl.matrix_translate(obj_pos.x, obj_pos.y, obj_pos.z))
+        shadow_mat = rl.matrix_multiply(world_mat, gc.shadow_proj)
+        item_model.transform = shadow_mat
+        for i in range(item_model.materialCount):
+            item_model.materials[i].shader = gc.shadow_shader
+        rl.rl_disable_backface_culling()   # flattened winding can flip
+        rl.draw_model(item_model, Vector3(0, 0, 0), 1.0, rl.Color(28, 22, 34, 255))
+        rl.rl_enable_backface_culling()
+        for i in range(item_model.materialCount):
+            item_model.materials[i].shader = gc.lighting_shader
+
+        # --- The object itself ----------------------------------------------
+        item_model.transform = mat
         rl.draw_model(item_model, obj_pos, 1.0, rl.WHITE)
+
+        if gc.current_mimic_eyes is not None:
+            gc.current_mimic_eyes.draw(gc.camera, item_model.transform, obj_pos)
+
         item_model.transform = rl.matrix_identity()
+
+        # --- Property auras (subtle coloured motes around the object) --------
+        item = gc.itens_hoje['to evaluate'][0]
+        glow = gc.textures["dust_glow"]
+        if item.atributos.get("RADIOATIVO"):
+            gc.aura_radio.draw(obj_pos, glow, gc.camera)
+        if item.atributos.get("VENENOSO"):
+            gc.aura_poison.draw(obj_pos, glow, gc.camera)
 
     # Paper is always drawn on top of the table (depth test off avoids z-fighting).
     rl.rl_draw_render_batch_active()
@@ -201,7 +251,7 @@ def draw_inspect_3d(gc: Game_context):
 
 def send_item(gc: Game_context):
     gc.itens_hoje['evaluated'].append(gc.itens_hoje['to evaluate'].pop(0))
-    
+    gc._ensure_mimic_eyes_for_current()
 
 
 # ---------------------------------------------------------------------------
@@ -299,7 +349,39 @@ def _update_object_transition(gc: Game_context, dt: float):
 # Update
 # ---------------------------------------------------------------------------
 
+def update_magnifier(gc: Game_context, dt: float):
+    """Hold the right mouse button for a magnifying-glass lens around the cursor.
+
+    Computes the lens parameters (centre in texture UV, magnification) that the
+    post-process shader uses to enlarge a circular region under the mouse. The
+    camera is never touched — only screen-space pixels inside the circle.
+    """
+    want = (rl.is_mouse_button_down(rl.MOUSE_BUTTON_RIGHT)
+            and not gc.gs.get("paper_open")
+            and not gc.gs.get("debug"))
+
+    # Ease activation in/out (frame-rate independent).
+    target_t = 1.0 if want else 0.0
+    gc.zoom_t += (target_t - gc.zoom_t) * min(1.0, 10.0 * dt)
+
+    # Cursor → texture UV. The scene texture is blitted vertically flipped
+    # (raylib render-texture convention), and the inversion curse mirrors it,
+    # so map the raw cursor accordingly.
+    dst = get_scaled_rect(gc)
+    m   = rl.get_mouse_position()
+    sx  = (m.x - dst.x) / dst.width  if dst.width  else 0.5
+    sy  = (m.y - dst.y) / dst.height if dst.height else 0.5
+    if getattr(gc, "inversion_curse_active", False):
+        gc.lens_center = (1.0 - sx, sy)
+    else:
+        gc.lens_center = (sx, 1.0 - sy)
+
+    gc.lens_zoom = _lerp(1.0, gc.MAGNIFY, _smooth(gc.zoom_t))
+
+
 def update_inspect(gc: Game_context, dt: float):
+    update_magnifier(gc, dt)
+
     if rl.is_key_pressed(rl.KEY_F1):
         gc.gs["debug"] = not gc.gs["debug"]
         if gc.gs["debug"]:
@@ -311,8 +393,11 @@ def update_inspect(gc: Game_context, dt: float):
         gc.player.update_debug_camera(dt)
         return
 
-    # Arc the first object in only once the day transition has settled AND the
-    # "Dia X" title animation has finished playing.
+    if gc.current_mimic_eyes is not None and len(gc.itens_hoje.get('to evaluate', [])) > 0:
+        name = gc.itens_hoje['to evaluate'][0].name
+        anim = get_animation(gc, name)
+        gc.current_mimic_eyes.update(dt, gc.models[name], anim)
+
     if (gc.gs.get("pending_first_enter")
             and not gc.transition.active
             and gc.day_intro_timer <= 0):

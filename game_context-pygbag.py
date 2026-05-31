@@ -9,6 +9,7 @@ from state import State
 from transition import Transition
 from item import Item
 from animation import add_shake, TweenAnimation
+from eyes import MimicEyes
 
 # Lines support a leading <tag> that selects a font size (see quad_text.SIZES).
 _PAPER_LINES = [
@@ -214,7 +215,10 @@ class Game_context:
         self.now                = self.prev_time
         self.player             = None
         self.player_cartas_odio = 0
-        self.odio_to_day = 5
+        self.n_erros = 0
+        self.penalidade = 0
+        self.penalidade_to_day = 5
+        self.erros_to_fire = 50
         self.dia_atual = 0
         self.n_itens_dias = {
             1: 3,
@@ -230,31 +234,38 @@ class Game_context:
             'evaluated': []
         }
         self.properties_on_list = {
+            "AMALDICOADO": False,
             "VENENOSO": False,
             "RADIOATIVO": False,
             "REAL": False,
             "NOBRE": False,
-            "ALIADOS": [],
-            "RIVAL": [],
-            "MIMICO": False
+            "ALIADOS": False,
+            "RIVAIS": False,
+            "MIMICO": False,
+            "MORTE": False,
         }
 
         self.error_costs = {
+            "AMALDICOADO": 5,
             "VENENOSO": 4,
             "RADIOATIVO": 1,
             "REAL": 3,
             "NOBRE": 2,
-            "MIMICO": 7,
-            "MALDIÇÕES": 5,
             "ALIADOS": 1,
             "RIVAIS": 2,
-            "REJECT": 1
+            "REJECT": 1,
+            "MIMICO": 7,
+            "MORTE": 10,
         }
         self.positive_rejects = ["REAL", "NOBRE", "ALIADOS"]
+        self.negative_acept = ["AMALDICOADO", "VENENOSO", "RADIOATIVO", "RIVAIS", "MIMICO", "MORTE"]
 
         self.reset_count_until_end_day = 100
         self.count_until_end_day = self.reset_count_until_end_day
         self.created_room = False
+
+        self.item_time_max = 60.0
+        self.item_time_left = 60.0
 
         self.tutorial_texts = [
             "Nas torres frias da escuridão,\ncomeça hoje tua missão.\nJulga os tesouros sem temor,\nanota tudo com rigor.",
@@ -274,6 +285,8 @@ class Game_context:
         self.day_intro_typing_speed = 8.0
 
         self.animations = {}
+        self.mimic_eyes = {}
+        self.current_mimic_eyes = None
         self.setup_animations()
         # Agora que os textos existem, tente carregar os sons do tutorial
         try:
@@ -299,10 +312,30 @@ class Game_context:
         print(f"Starting day {self.dia_atual}...")
         self.itens_hoje['to evaluate'] = [Item() for _ in range(self.n_itens_dias.get(self.dia_atual, 15))]
         self.itens_hoje['evaluated'] = []
-        # The day's first object stays off-table until it arcs in (after the day
-        # transition, or after the tutorial on day 1).
+
+        self._ensure_mimic_eyes_for_current()
+
         self.gs["object_hidden"]       = True
         self.gs["pending_first_enter"] = True
+
+    def _ensure_mimic_eyes_for_current(self):
+        items = self.itens_hoje.get('to evaluate', [])
+        if not items:
+            self.current_mimic_eyes = None
+            return
+
+        current = items[0]
+        name = current.name
+        is_mimic = current.atributos.get("MIMICO", False)
+
+        if is_mimic:
+            if name not in self.mimic_eyes:
+                eyes = MimicEyes()
+                eyes.setup(self.models[name])
+                self.mimic_eyes[name] = eyes
+            self.current_mimic_eyes = self.mimic_eyes[name]
+        else:
+            self.current_mimic_eyes = None
 
     def load_fonts(self):
         """Load fonts once into self.fonts. The serif atlas includes the ✔ glyph
@@ -445,6 +478,9 @@ class Game_context:
                         pass
 
     def unload_models(self):
+        for eyes in self.mimic_eyes.values():
+            eyes.unload()
+        self.mimic_eyes.clear()
         for model in self.models.values():
             rl.unload_model(model)
 

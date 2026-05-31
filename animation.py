@@ -82,6 +82,12 @@ def add_shake(gc, model_name: str, offset=0.05, velocity=1.0):
     gc.animations[model_name] = ShakeAnimation(offset, velocity)
 
 
+def get_animation(gc, model_name: str):
+    if hasattr(gc, "animations") and model_name in gc.animations:
+        return gc.animations[model_name]
+    return None
+
+
 def remove_animation(gc, model_name: str):
     if hasattr(gc, "animations") and model_name in gc.animations:
         del gc.animations[model_name]

@@ -22,7 +22,7 @@ class Player:
                         bx, by, 11, rl.Color(80, 220, 80, 220))
         else:
             rl.draw_text(
-                b"[LMB] Papel   [P] Pause   [F] Fullscreen   [F1] Debug cam   [K] Painting",
+                b"[LMB] Papel   [RMB] Zoom   [P] Pause   [F] Fullscreen   [F1] Debug cam   [K] Painting",
                 bx, by, 11, rl.Color(120, 100, 65, 190))
 
     def update_object(self): # Mouse-driven arcball rotation for the inspected object.
