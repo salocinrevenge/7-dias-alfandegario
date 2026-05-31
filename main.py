@@ -6,7 +6,7 @@ import asyncio
 import time
 
 
-from inspecting import draw_inspect_3d, update_inspect, draw_tutorial_talk
+from inspecting import draw_inspect_3d, update_inspect, draw_tutorial_talk, get_mouse_position
 from menu import draw_menu, draw_menu_bg_into_texture
 from game_context import Game_context
 from state import State
@@ -92,6 +92,14 @@ def general_inputs(gc: Game_context): # Essa funcao mostra q era pra ter uma cla
     if rl.is_key_pressed(rl.KEY_N):
         gc.nausea_curse_active = not getattr(gc, "nausea_curse_active", False)
 
+    # -------------------------------------------------------------- #
+    #  KEYHOLE CURSE TOGGLE (DEBUG)
+    # -------------------------------------------------------------- #
+
+    # gc.keyhole_curse_active = False # Start deactivated
+    if rl.is_key_pressed(rl.KEY_H):
+        gc.keyhole_curse_active = not getattr(gc, "keyhole_curse_active", False)
+
 
 def resize_texture_if_needed(gc: Game_context, render_tex, painting_shader, shader_res_loc, src_rect):
     sw, sh = rl.get_screen_width(), rl.get_screen_height()
@@ -103,6 +111,7 @@ def resize_texture_if_needed(gc: Game_context, render_tex, painting_shader, shad
         src_rect = rl.Rectangle(0, 0, gc.VIRTUAL_W, -gc.VIRTUAL_H)
         # Keep shader resolution uniform in sync
         _set_shader_resolution(painting_shader, shader_res_loc, gc.VIRTUAL_W, gc.VIRTUAL_H)
+
     return render_tex, src_rect
 
 
@@ -195,6 +204,77 @@ def draw_on_texture(gc: Game_context, render_tex):
 
     rl.end_texture_mode()
 
+def draw_keyhole_effect(gc, radius=180, tri_h=360, flare_width=240):
+    """
+    Draws a negative-space mask using a layered geometric stack:
+    1. Top semi-circle (void covers upwards & sideways)
+    2. Bottom semi-circle (void covers ONLY sideways)
+    3. Bottom trapezoid beam flare
+    """
+    if not getattr(gc, "keyhole_curse_active", False):
+        return
+
+    mouse = rl.get_mouse_position()
+    M_X = mouse.x
+    M_Y = mouse.y
+
+    R = float(radius)
+    H = float(tri_h)
+    F = float(flare_width)
+    
+    # Large bounding box constant to clear off-screen space completely
+    BOX = 4000.0 
+
+    # ==============================================================
+    # 1. TOP SEMI-CIRCLE (Black covers UPWARDS and SIDEWAYS)
+    # Using draw_ring from 180 to 360 degrees sweeps the top half.
+    # ==============================================================
+    rl.draw_ring(mouse, R, BOX, 180.0, 360.0, 64, rl.BLACK)
+
+    # ==============================================================
+    # 2. BOTTOM SEMI-CIRCLE (Black covers ONLY SIDEWAYS)
+    # We block out the left and right flanks alongside the lower curve
+    # by drawing rectangles that clip into the circle's side tangents.
+    # ==============================================================
+    # Left flank rectangle alongside the lower semi-circle
+    rl.draw_rectangle(int(M_X - BOX), int(M_Y), int(BOX - R), int(R), rl.BLACK)
+    # Right flank rectangle alongside the lower semi-circle
+    rl.draw_rectangle(int(M_X + R), int(M_Y), int(BOX - R), int(R), rl.BLACK)
+    
+    # Smooth inner corner cleanups filling gaps between the straight box walls 
+    # and the curved lower half of the ring (angles 0 to 180)
+    # rl.draw_ring(mouse, R, BOX, 0.0, 180.0, 64, rl.BLACK)
+
+    # ==============================================================
+    # 3. TRAPEZOID FLARE (Sits below the middle layer at M_Y + R)
+    # Shifting the top anchor down to the bottom of the circle stack.
+    # ==============================================================
+    start_y = M_Y + R
+
+    # Bottom Left Voids
+    V_L_TL = rl.Vector2(M_X - BOX, start_y)
+    V_L_TR = rl.Vector2(M_X - R, start_y)
+    V_L_BL = rl.Vector2(M_X - BOX, M_Y + H)
+    V_L_BR = rl.Vector2(M_X - F, M_Y + H)
+
+    rl.draw_triangle(V_L_TL, V_L_BL, V_L_BR, rl.BLACK)
+    rl.draw_triangle(V_L_TL, V_L_BR, V_L_TR, rl.BLACK)
+
+    # Bottom Right Voids
+    V_R_TL = rl.Vector2(M_X + BOX, start_y)
+    V_R_TR = rl.Vector2(M_X + R, start_y)
+    V_R_BL = rl.Vector2(M_X + BOX, M_Y + H)
+    V_R_BR = rl.Vector2(M_X + F, M_Y + H)
+
+    rl.draw_triangle(V_R_TL, V_R_BR, V_R_BL, rl.BLACK)
+    rl.draw_triangle(V_R_TL, V_R_TR, V_R_BR, rl.BLACK)
+
+    # ==============================================================
+    # 4. DEEP FLOOR VOID
+    # ==============================================================
+    rl.draw_rectangle(int(M_X - BOX), int(M_Y + H), int(BOX * 2), int(BOX), rl.BLACK)
+
+
 def blit_on_screen(gc: Game_context, render_tex=None, src_rect=None, painting_shader=None):
     rl.begin_drawing()
     rl.clear_background(rl.BLACK)
@@ -219,6 +299,8 @@ def blit_on_screen(gc: Game_context, render_tex=None, src_rect=None, painting_sh
     if gc.painting_enabled:
         rl.end_shader_mode()
 
+    if getattr(gc, "keyhole_curse_active", False):
+        draw_keyhole_effect(gc)
 
     # ---- Overlays (unaffected by the painting shader) ---------------
     match gc.current_state:
@@ -304,6 +386,10 @@ async def main():
         # dt update
         gc.now = time.time()
         dt  = gc.now - gc.prev_time
+
+        # slow curse ?
+        # dt = (1/10)*dt
+
         gc.prev_time = gc.now
 
         current_time = gc.now - gc.start_time 
