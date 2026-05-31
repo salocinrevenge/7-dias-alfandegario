@@ -131,6 +131,9 @@ def _advance_tutorial(gc: Game_context):
         # Tutorial done — drop straight back into day 1 (no fade); the first
         # object then arcs in.
         gc.tutorial_seen = True
+        # Restart the day intro timer so 'Dia X' shows up NOW
+        gc.day_intro_timer = 2.5
+        gc.day_intro_char_count = 0.0
         gc.current_state = State.INSPECT
 
 
@@ -163,8 +166,8 @@ def update(gc: Game_context, dt: float):
                         gc.day_intro_char_count += gc.day_intro_typing_speed * dt
 
                     # On day 1 the tutorial plays once, right after the day card and
-                    # before any gameplay / object entry.
-                    if gc.dia_atual == 1 and not gc.tutorial_seen:
+                    # before any gameplay / object entry. (Or on a redo day if seen is reset)
+                    if not gc.tutorial_seen:
                         if gc.day_intro_timer <= 0 and not gc.transition.active:
                             gc.transition.start(State.INTRO)
                     elif rl.is_key_pressed(rl.KEY_P):

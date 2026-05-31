@@ -28,6 +28,7 @@ def update_end_state(gc: Game_context, dt: float):
         gc.dia_atual = 0
         gc.n_erros = 0
         gc.penalidade = 0
+        gc.reset_tutorial_texts()
         gc.tutorial_seen = False
         gc.tutorial_index = 0
         gc.tutorial_char_count = 0
