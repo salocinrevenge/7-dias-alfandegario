@@ -258,11 +258,11 @@ class Game_context:
         self.created_room = False
 
         self.tutorial_texts = [
-            "Nas torres frias da escuridão,\ncomeça hoje tua missão.\nJulga os tesouros sem temor,\nanota tudo com rigor.",
-            "Se houver veneno ou maldição,\nrejeita sem hesitação.\nSe um mímico ousar chegar,\nnão o deixes atravessar.",
-            "Das terras do inimigo vil,\nnão passes nada ao teu perfil.\nE o Livro Nuclear, em ardor,\nrecusa-o sem nenhum pudor.",
-            "Sete dias tens para provar\nque sabes bem fiscalizar.\nSe muitos erros cometer,\nao posto hás de retornar.",
-            "Mas se o fracasso florescer,\nteu cargo irás perder.\nAgora vigia o portão,\ne cumpre tua obrigação."
+            "Nas torres frias da escuridao,\ncomeca hoje tua missao.\nJulga os tesouros sem temor,\nanota tudo com rigor.",
+            "Se houver veneno ou maldicao,\nrejeita sem hesitacao.\nSe um mimico ousar chegar,\nnao o deixes atravessar.",
+            "Das terras do inimigo vil,\nnao passes nada ao teu perfil.\nE o Livro Nuclear, em ardor,\nrecusa-o sem nenhum pudor.",
+            "Sete dias tens para provar\nque sabes bem fiscalizar.\nSe muitos erros cometer,\nao posto has de retornar.",
+            "Mas se o fracasso florescer,\nteu cargo iras perder.\nAgora vigia o portao,\ne cumpre tua obrigacao."
         ]
 
         self.tutorial_index = 0

@@ -3,7 +3,7 @@ import pyray as rl
 from pyray import Vector2, Vector3
 
 from game_context import Game_context, PAPER_TW, PAPER_TH
-from utils import get_scaled_rect, _screen_to_virtual
+from utils import get_scaled_rect, _screen_to_virtual, wrap_text, draw_text_box
 from animation import get_anim_offset
 
 
@@ -396,41 +396,35 @@ def draw_tutorial_talk(gc: Game_context):
     if gc.tutorial_index >= len(gc.tutorial_texts):
         return
     text = gc.tutorial_texts[gc.tutorial_index]
-    
-    sw, sh = rl.get_screen_width(), rl.get_screen_height()
+
+    # Draw into the render texture, so use the virtual resolution and the same
+    # serif font used by the rest of the UI text.
+    font = gc.fonts["serif"]
+    sw, sh = gc.VIRTUAL_W, gc.VIRTUAL_H
     font_size = int(max(sh * 0.045, 20))
+    spacing = 1
     padding = int(sw * 0.2)
     max_w = sw - padding * 2
 
-    # Wrap text dynamically
-    raw_lines = text.split('\n')
-    lines = []
-    
-    for raw_line in raw_lines:
-        words = raw_line.split(' ')
-        current_line = []
-        
-        for word in words:
-            test_line = " ".join(current_line + [word])
-            w = rl.measure_text(test_line.encode('utf-8'), font_size)
-            if w > max_w and len(current_line) > 0:
-                lines.append(" ".join(current_line))
-                current_line = [word]
-            else:
-                current_line.append(word)
-        if current_line:
-            lines.append(" ".join(current_line))
-        
+    # Wrap to the box width but keep the poem's own line breaks.
+    lines = wrap_text(font, text, font_size, spacing, max_w)
     wrapped_full_text = "\n".join(lines)
 
-    chars_to_draw = int(gc.tutorial_char_count)
-    if chars_to_draw > len(wrapped_full_text):
-        chars_to_draw = len(wrapped_full_text)
-    
+    # Typewriter reveal.
+    chars_to_draw = min(int(gc.tutorial_char_count), len(wrapped_full_text))
     current_text = wrapped_full_text[:chars_to_draw]
-    # Desenhe o balão de fala do tutorial
-    text_y = sh - int(sh * 0.25)
-    rl.draw_text(current_text.encode('utf-8'), padding, text_y, font_size, rl.WHITE)
+
+    # Centered on screen, poem-style, with a fake drop shadow.
+    draw_text_box(
+        font,
+        current_text,
+        rl.Vector2(sw / 2.0, sh / 2.0),
+        font_size,
+        spacing=spacing,
+        line_spacing=1.5,
+        align="center",
+        shadow_offset=max(2, int(font_size * 0.08)),
+    )
 
 
 def _on_button(gc: Game_context, key: str):

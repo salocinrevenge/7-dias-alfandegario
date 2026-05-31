@@ -113,6 +113,24 @@ def resize_texture_if_needed(gc: Game_context, render_tex, painting_shader, shad
     return render_tex, src_rect
 
 
+def _advance_tutorial(gc: Game_context):
+    """Move to the next tutorial stanza, or leave INTRO if it was the last one."""
+    gc.tutorial_index += 1
+    gc.tutorial_char_count = 0.0
+    if gc.tutorial_index >= len(gc.tutorial_texts):
+        prev = getattr(gc, 'current_tutorial_sound', None)
+        if prev is not None:
+            try:
+                rl.stop_sound(prev)
+            except Exception:
+                pass
+            gc.current_tutorial_sound = None
+        # Tutorial done — drop straight back into day 1 (no fade); the first
+        # object then arcs in.
+        gc.tutorial_seen = True
+        gc.current_state = State.INSPECT
+
+
 def update(gc: Game_context, dt: float):
     new_state = gc.transition.update(dt)
     if new_state is not None:
@@ -182,26 +200,23 @@ def update(gc: Game_context, dt: float):
                         gc.tutorial_played_index = gc.tutorial_index
 
                     gc.tutorial_char_count += gc.tutorial_typing_speed * dt
-                    
+
+                    text_len = len(gc.tutorial_texts[gc.tutorial_index])
+                    text_done = gc.tutorial_char_count >= text_len
+
                     if rl.is_key_pressed(rl.KEY_ENTER) or rl.is_mouse_button_pressed(rl.MOUSE_BUTTON_LEFT):
-                        text_len = len(gc.tutorial_texts[gc.tutorial_index])
-                        if gc.tutorial_char_count < text_len:
+                        if not text_done:
+                            # First press snaps the typewriter to the end.
                             gc.tutorial_char_count = text_len
                         else:
-                            gc.tutorial_index += 1
-                            gc.tutorial_char_count = 0.0
-                            if gc.tutorial_index >= len(gc.tutorial_texts):
-                                prev = getattr(gc, 'current_tutorial_sound', None)
-                                if prev is not None:
-                                    try:
-                                        rl.stop_sound(prev)
-                                    except Exception:
-                                        pass
-                                    gc.current_tutorial_sound = None
-                                # Tutorial done — drop straight back into day 1 (no
-                                # fade); the first object then arcs in.
-                                gc.tutorial_seen = True
-                                gc.current_state = State.INSPECT
+                            _advance_tutorial(gc)
+                    else:
+                        # Auto-advance once the stanza's narration has finished
+                        # playing (and its text is fully revealed).
+                        snd = getattr(gc, 'current_tutorial_sound', None)
+                        if snd is not None and text_done and not rl.is_sound_playing(snd):
+                            gc.current_tutorial_sound = None
+                            _advance_tutorial(gc)
 
 
 def draw_on_texture(gc: Game_context, render_tex):
@@ -225,6 +240,7 @@ def draw_on_texture(gc: Game_context, render_tex):
 
         case State.INTRO:
             draw_inspect_3d(gc)
+            draw_tutorial_talk(gc)
 
     rl.end_texture_mode()
 
@@ -379,7 +395,6 @@ def blit_on_screen(gc: Game_context, render_tex=None, src_rect=None, painting_sh
 
         case State.INTRO:
             gc.player.draw_hud(dst)
-            draw_tutorial_talk(gc)
 
     # Transition fade drawn on top of everything
     gc.transition.draw()
