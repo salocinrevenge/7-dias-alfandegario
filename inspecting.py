@@ -195,7 +195,7 @@ def draw_inspect_3d(gc: Game_context):
 
     # --- Draw HUD for Errors and Penalties ---
     # Draw simple text overlay
-    text = f"Erros: {gc.n_erros}   Penalidade: {gc.penalidade}".encode('utf-8')
+    text = f"Erros: {gc.n_erros}   Penalidade: {gc.penalidade}   Tempo: {max(0, int(gc.item_time_left))}s".encode('utf-8')
     rl.draw_text(text, 20, 20, 20, rl.WHITE)
 
 
@@ -291,6 +291,8 @@ def _update_object_transition(gc: Game_context, dt: float):
         if t >= 1.0:
             gc.gs["obj_anim"]      = None
             gc.gs["object_offset"] = Vector3(0.0, 0.0, 0.0)
+            gc.item_time_max = max(5, 60 - (gc.dia_atual - 1) * 5)
+            gc.item_time_left = gc.item_time_max
 
 
 # ---------------------------------------------------------------------------
@@ -333,6 +335,15 @@ def update_inspect(gc: Game_context, dt: float):
     if gc.gs.get("obj_anim"):
         _update_object_transition(gc, dt)
         return
+
+    # Item countdown timer
+    if len(gc.itens_hoje["to evaluate"]) > 0 and not gc.gs.get("object_hidden"):
+        gc.item_time_left -= dt
+        if gc.item_time_left <= 0:
+            print("TIME OUT! REJEITADO AUTOMATICAMENTE")
+            # Automatically acts as if the player clicked "rejeitar"
+            _on_button(gc, "rejeitar")
+            return
 
     if gc.gs["paper_open"]:
         on_paper, item = _hit_paper(gc)

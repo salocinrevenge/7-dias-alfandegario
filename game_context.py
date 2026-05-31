@@ -261,6 +261,9 @@ class Game_context:
         self.count_until_end_day = self.reset_count_until_end_day
         self.created_room = False
 
+        self.item_time_max = 60.0
+        self.item_time_left = 60.0
+
         self.tutorial_texts = [
             "Nas torres frias da escuridao,\ncomeca hoje tua missao.\nJulga os tesouros sem temor,\nanota tudo com rigor.",
             "Se houver veneno ou maldicao,\nrejeita sem hesitacao.\nSe um mimico ousar chegar,\nnao o deixes atravessar.",
@@ -304,6 +307,8 @@ class Game_context:
         if self.n_erros >= self.erros_to_fire:
             raise Exception("Muitos erros! Demitido, fim de jogo.")
         self.dia_atual += 1
+        if self.dia_atual > 7:
+            raise Exception("Parabéns, você completou o jogo!")
         self.day_intro_timer = 2.5
         self.day_intro_char_count = 0.0
         print(f"Starting day {self.dia_atual}...")
