@@ -317,8 +317,8 @@ class Game_context:
         self.models = {}
         self.models["table"]   = rl.load_model(b"models/env/chinese_tea_table_2k.gltf")
         # Inspected-item models, keyed by Item.name ("relogio" / "lista")
-        self.models["relogio"] = rl.load_model(b"models/objects/mantel_clock_01_1k.gltf")
-        self.models["lista"]   = rl.load_model(b"models/objects/papel.gltf")
+        self.models["relogio"] = rl.load_model(b"models/objects/mantel_clock/mantel_clock_01_1k.gltf")
+        self.models["lista"]   = rl.load_model(b"models/objects/papel/papel.gltf")
         # The interactive checklist paper (generated plane + baked text texture)
         paper_mesh = rl.gen_mesh_plane(self.PAPER_W, self.PAPER_H, 1, 1)
         self.models["paper"] = rl.load_model_from_mesh(paper_mesh)
