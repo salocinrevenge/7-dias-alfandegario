@@ -251,14 +251,6 @@ def draw_inspect_3d(gc: Game_context):
 
 def send_item(gc: Game_context):
     gc.itens_hoje['evaluated'].append(gc.itens_hoje['to evaluate'].pop(0))
-    penalidade = 0
-    n_erros = 0
-    for atributo, valor in gc.itens_hoje['evaluated'][-1].atributos.items():
-        if type(valor) != list:
-            if gc.properties_on_list[atributo] != valor:
-                n_erros += 1
-                penalidade += gc.error_costs[atributo]
-    gc.player_cartas_odio += n_erros
     gc._ensure_mimic_eyes_for_current()
 
 
