@@ -8,7 +8,7 @@ import quad_text
 from state import State
 from transition import Transition
 from item import Item
-from animation import add_shake
+from animation import add_shake, TweenAnimation
 
 # Lines support a leading <tag> that selects a font size (see quad_text.SIZES).
 _PAPER_LINES = [
@@ -170,7 +170,8 @@ class Game_context:
         self.PAPER_FRONT_POS  = Vector3(0.0, 0.74, 0.4)
         self.PAPER_OPEN_ROT_X = 90.0
         self.PAPER_OPEN_ROT_Y = 0.0
-        self.PAPER_ANIM_SPEED = 1.0
+
+        self.paper_anim = TweenAnimation(duration=0.3)
 
         # --- Resources (fonts → textures → models; the paper bake needs the font) ---
         self.load_fonts()
@@ -435,7 +436,6 @@ class Game_context:
         self._INIT_CAM_PITCH = math.asin(_dy / _dl)
         self.gs = {
             "paper_open":   False,
-            "paper_anim_t": 0.0,   # 0 = flat on table, 1 = upright in front of camera
             "paper_states":      {},    # key → bool for checkboxes
             "paper_items":       parse_paper_items(self.paper_layout, self.fonts["serif"]),
             "paper_hovered_key": None,  # key of currently hovered button, or None

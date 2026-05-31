@@ -26,6 +26,43 @@ class ShakeAnimation:
         )
 
 
+class TweenAnimation:
+    def __init__(self, duration=1.0):
+        self.duration = duration
+        self.current = 0.0
+        self._raw = 0.0
+        self._playing = False
+        self._forward = True
+
+    def open(self):
+        self._forward = True
+        self._playing = True
+
+    def close(self):
+        self._forward = False
+        self._playing = True
+
+    def update(self, dt: float):
+        if not self._playing:
+            return
+        step = dt / self.duration
+        if self._forward:
+            self._raw = min(1.0, self._raw + step)
+        else:
+            self._raw = max(0.0, self._raw - step)
+        self.current = self._ease(self._raw)
+        if self._raw <= 0.0 or self._raw >= 1.0:
+            self._playing = False
+
+    @staticmethod
+    def _ease(t: float) -> float:
+        return t * t * (3.0 - 2.0 * t)
+
+    @property
+    def done(self) -> bool:
+        return not self._playing
+
+
 def update_animations(gc, dt: float):
     if not hasattr(gc, "animations") or not gc.animations:
         return

@@ -8,28 +8,11 @@ from animation import get_anim_offset
 
 
 # ---------------------------------------------------------------------------
-# Easing
-# ---------------------------------------------------------------------------
-
-def _elastic_out(t: float) -> float:
-    if t <= 0.0: return 0.0
-    if t >= 1.0: return 1.0
-    p = 0.35
-    return pow(2.0, -10.0 * t) * math.sin((t - p / 4.0) * (2.0 * math.pi) / p) + 1.0
-
-def _elastic_in(t: float) -> float:
-    return 1.0 - _elastic_out(1.0 - t)
-
-def _lerp(a: float, b: float, t: float) -> float:
-    return a + (b - a) * t
-
-
-# ---------------------------------------------------------------------------
 # Paper transform
 # ---------------------------------------------------------------------------
 
-def _paper_ease(gc: Game_context, t_raw: float) -> float:
-    return _elastic_out(t_raw) if gc.gs["paper_open"] else _elastic_in(t_raw)
+def _lerp(a: float, b: float, t: float) -> float:
+    return a + (b - a) * t
 
 def _paper_world_pos_scale(gc: Game_context, t_e: float):
     p0, p1 = gc.PAPER_POS, gc.PAPER_FRONT_POS
@@ -72,10 +55,10 @@ def _hit_paper_item(gc: Game_context) -> dict | None:
     Ray-plane hit test → texture pixel → item lookup.
     Returns the interactive item under the cursor, or None.
     """
-    if gc.gs["paper_anim_t"] < 0.9:
+    if gc.paper_anim.current < 0.9:
         return None
 
-    t_e       = _paper_ease(gc, gc.gs["paper_anim_t"])
+    t_e       = gc.paper_anim.current
     pos, s    = _paper_world_pos_scale(gc, t_e)
 
     dst  = get_scaled_rect(gc)
@@ -113,8 +96,8 @@ def _hit_paper_item(gc: Game_context) -> dict | None:
 # Draw
 # ---------------------------------------------------------------------------
 
-def _draw_paper(gc: Game_context, t_raw: float):
-    t_e    = _paper_ease(gc, t_raw)
+def _draw_paper(gc: Game_context):
+    t_e    = gc.paper_anim.current
     pos, s = _paper_world_pos_scale(gc, t_e)
 
     rx = math.radians(_lerp(gc.PAPER_REST_ROT_X, gc.PAPER_OPEN_ROT_X, t_e))
@@ -165,7 +148,7 @@ def draw_inspect_3d(gc: Game_context):
     # Paper is always drawn on top of the table (depth test off avoids z-fighting).
     rl.rl_draw_render_batch_active()
     rl.rl_disable_depth_test()
-    _draw_paper(gc, gc.gs.get("paper_anim_t", 0.0))
+    _draw_paper(gc)
     rl.rl_draw_render_batch_active()
     rl.rl_enable_depth_test()
     rl.end_mode_3d()
@@ -212,14 +195,16 @@ def update_inspect(gc: Game_context, dt: float):
         return
 
     # Advance paper open/close animation
-    target  = 1.0 if gc.gs["paper_open"] else 0.0
-    current = gc.gs["paper_anim_t"]
-    if current != target:
-        step = gc.PAPER_ANIM_SPEED * dt
-        gc.gs["paper_anim_t"] = (
-            min(target, current + step) if target > current
-            else max(target, current - step)
-        )
+    was_open = gc.gs.get("paper_open_prev", False)
+    is_open = gc.gs["paper_open"]
+    if is_open != was_open:
+        if is_open:
+            gc.paper_anim.open()
+        else:
+            gc.paper_anim.close()
+        gc.gs["paper_open_prev"] = is_open
+
+    gc.paper_anim.update(dt)
 
     if gc.gs["paper_open"]:
         item = _hit_paper_item(gc)
