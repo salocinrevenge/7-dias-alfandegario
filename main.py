@@ -150,6 +150,7 @@ def update(gc: Game_context, dt: float):
             match gc.current_state:
                 case State.MENU:
                     if rl.is_key_pressed(rl.KEY_ENTER) or rl.is_mouse_button_pressed(rl.MOUSE_BUTTON_LEFT):
+                        gc.reset_effects()
                         gc.transition.start(State.INSPECT)
 
                 case State.INSPECT:
@@ -182,6 +183,7 @@ def update(gc: Game_context, dt: float):
                     if rl.is_key_pressed(rl.KEY_P):
                         gc.transition.start(State.INSPECT)
                     elif rl.is_key_pressed(rl.KEY_M):
+                        gc.reset_effects()
                         gc.transition.start(State.MENU)
                 case State.GAME_OVER_FIRED | State.GAME_OVER_WIN | State.GAME_OVER_EXPLODED:
                     from end_states import update_end_state

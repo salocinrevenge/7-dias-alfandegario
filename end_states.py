@@ -45,6 +45,7 @@ def update_end_state(gc: Game_context, dt: float):
         gc.tutorial_seen = False
         gc.tutorial_index = 0
         gc.tutorial_char_count = 0
+        gc.reset_effects()
         gc.transition.start(State.MENU)
 
 

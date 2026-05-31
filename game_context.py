@@ -852,3 +852,12 @@ class Game_context:
             self.items_correct_today += 1
             self.total_correct += 1
         self.errors_today += errors_this_item
+
+    def reset_effects(self):
+        """Clear all active curses and hunger — called on restart / return to menu."""
+        self.nausea_curse_active = False
+        self.inversion_curse_active = False
+        self.keyhole_curse_active = False
+        self.hunger = self.hunger_max
+        self.hunger_starve_penalty = 0.0
+        self.painting_enabled = True
