@@ -300,7 +300,7 @@ class Game_context:
         self.transition.start(State.INSPECT)
         if self.penalidade  >= self.penalidade_to_day:
             self.dia_atual -= 1
-            self.penalidade -= self.penalidade_to_day
+            self.penalidade = 0
         if self.n_erros >= self.erros_to_fire:
             raise Exception("Muitos erros! Demitido, fim de jogo.")
         self.dia_atual += 1
