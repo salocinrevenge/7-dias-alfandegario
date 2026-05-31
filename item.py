@@ -40,28 +40,41 @@ class Item:
         else:
             self._init_normal_attrs()
 
+    @staticmethod
+    def _roll_faction(ally_chance: float, rival_chance: float) -> tuple[bool, bool]:
+        """ALIADOS and RIVAIS are mutually exclusive: an item belongs to one
+        faction, the other, or neither — never both."""
+        r = random.random()
+        if r < ally_chance:
+            return True, False
+        if r < ally_chance + rival_chance:
+            return False, True
+        return False, False
+
     def _init_normal_attrs(self):
+        aliados, rivais = self._roll_faction(0.30, 0.30)
         self.atributos = {
-            "AMALDICOADO": random.random() < 0.25,
-            "VENENOSO":    random.random() < 0.35,
-            "RADIOATIVO":  random.random() < 0.17,
+            "AMALDICOADO": random.random() < 0.15,
+            "VENENOSO":    random.random() < 0.20,
+            "RADIOATIVO":  random.random() < 0.10,
             "REAL":        random.random() >= 0.006,
             "NOBRE":       random.random() < 0.40,
-            "ALIADOS":     random.random() < 0.50,
-            "RIVAIS":      random.random() < 0.50,
-            "MIMICO":      random.random() < 0.15,
+            "ALIADOS":     aliados,
+            "RIVAIS":      rivais,
+            "MIMICO":      random.random() < 0.10,
             "MORTE":       random.random() < 0.01,
         }
 
     def _init_food_attrs(self):
+        aliados, rivais = self._roll_faction(0.15, 0.15)
         self.atributos = {
-            "AMALDICOADO": random.random() < 0.12,
-            "VENENOSO":    random.random() < 0.18,
-            "RADIOATIVO":  random.random() < 0.05,
+            "AMALDICOADO": random.random() < 0.08,
+            "VENENOSO":    random.random() < 0.12,
+            "RADIOATIVO":  random.random() < 0.04,
             "REAL":        True,
             "NOBRE":       random.random() < 0.70,
-            "ALIADOS":     random.random() < 0.15,
-            "RIVAIS":      random.random() < 0.15,
+            "ALIADOS":     aliados,
+            "RIVAIS":      rivais,
             "MIMICO":      random.random() < 0.04,
             "MORTE":       False,
         }

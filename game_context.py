@@ -249,8 +249,10 @@ class Game_context:
         self.player             = None
         self.n_erros = 0
         self.penalidade = 0
-        self.penalidade_to_day = 5
-        self.erros_to_fire = 50
+        # Per-day penalty allowance before the day must be redone (penalidade is
+        # reset every morning, so this is "mistakes tolerated in a single day").
+        self.penalidade_to_day = 8
+        self.erros_to_fire = 60
         self.dia_atual = 0
         self.n_itens_dias = {
             1: 3,
@@ -267,15 +269,15 @@ class Game_context:
         }
 
         self.error_costs = {
-            "AMALDICOADO": 5,
-            "VENENOSO": 4,
+            "AMALDICOADO": 4,
+            "VENENOSO": 3,
             "RADIOATIVO": 1,
-            "REAL": 3,
-            "NOBRE": 2,
+            "REAL": 2,
+            "NOBRE": 1,
             "ALIADOS": 1,
-            "RIVAIS": 2,
+            "RIVAIS": 1,
             "REJECT": 1,
-            "MIMICO": 7,
+            "MIMICO": 5,
             "MORTE": 10,
         }
         self.positive_rejects = ["REAL", "NOBRE", "ALIADOS"]
@@ -314,7 +316,7 @@ class Game_context:
         # --- Hunger system ---
         self.hunger_max = 100.0
         self.hunger = self.hunger_max
-        self.hunger_decay = 1.8          # points lost per second
+        self.hunger_decay = 1.2          # points lost per second
         self.hunger_starve_penalty = 0.0 # accumulates when starving, triggers errors
 
         self.reset_tutorial_texts()
@@ -428,6 +430,9 @@ class Game_context:
         self.day_intro_char_count = 0.0
         self.hunger = self.hunger_max
         self.hunger_starve_penalty = 0.0
+        # penalidade is judged per-day: start each morning with a clean slate so
+        # the redo threshold measures only the current day's mistakes.
+        self.penalidade = 0
         # A new day wipes any curses inflicted the previous day.
         self.nausea_curse_active = False
         self.inversion_curse_active = False
