@@ -393,8 +393,7 @@ def update_magnifier(gc: Game_context, dt: float):
     camera is never touched — only screen-space pixels inside the circle.
     """
     want = (rl.is_mouse_button_down(rl.MOUSE_BUTTON_RIGHT)
-            and not gc.gs.get("paper_open")
-            and not gc.gs.get("debug"))
+            and not gc.gs.get("paper_open"))
 
     # Ease activation in/out (frame-rate independent).
     target_t = 1.0 if want else 0.0
@@ -430,17 +429,6 @@ def update_inspect(gc: Game_context, dt: float):
         gc.gs["food_msg_timer"] -= dt
         if gc.gs["food_msg_timer"] <= 0:
             gc.gs["food_msg"] = ""
-
-    if rl.is_key_pressed(rl.KEY_F1):
-        gc.gs["debug"] = not gc.gs["debug"]
-        if gc.gs["debug"]:
-            rl.disable_cursor()
-        else:
-            rl.enable_cursor()
-
-    if gc.gs["debug"]:
-        gc.player.update_debug_camera(dt)
-        return
 
     if gc.current_mimic_eyes is not None and len(gc.itens_hoje.get('to evaluate', [])) > 0:
         name = gc.itens_hoje['to evaluate'][0].name

@@ -74,30 +74,6 @@ def general_inputs(gc: Game_context): # Essa funcao mostra q era pra ter uma cla
     if rl.is_key_pressed(rl.KEY_K):
         gc.painting_enabled = not gc.painting_enabled
 
-    # -------------------------------------------------------------- #
-    #  INVERSION CURSE TOGGLE (DEBUG)
-    # -------------------------------------------------------------- #
-    if rl.is_key_pressed(rl.KEY_I):
-        # Initialize the variable if it doesn't exist yet, then toggle it
-        if not hasattr(gc, "inversion_curse_active"):
-            gc.inversion_curse_active = False
-        gc.inversion_curse_active = not gc.inversion_curse_active
-
-
-    # -------------------------------------------------------------- #
-    #  NAUSEA CURSE TOGGLE (DEBUG)
-    # -------------------------------------------------------------- #
-    if rl.is_key_pressed(rl.KEY_N):
-        gc.nausea_curse_active = not getattr(gc, "nausea_curse_active", False)
-
-    # -------------------------------------------------------------- #
-    #  KEYHOLE CURSE TOGGLE (DEBUG)
-    # -------------------------------------------------------------- #
-
-    # gc.keyhole_curse_active = False # Start deactivated
-    if rl.is_key_pressed(rl.KEY_H):
-        gc.keyhole_curse_active = not getattr(gc, "keyhole_curse_active", False)
-
 
 def resize_texture_if_needed(gc: Game_context, render_tex, src_rect):
     sw, sh = rl.get_screen_width(), rl.get_screen_height()
@@ -174,9 +150,6 @@ def update(gc: Game_context, dt: float):
                         if gc.day_intro_timer <= 0 and not gc.transition.active:
                             gc.transition.start(State.INTRO)
                     elif rl.is_key_pressed(rl.KEY_P):
-                        if gc.gs.get("debug"):
-                            gc.gs["debug"] = False
-                            rl.enable_cursor()
                         gc.transition.start(State.PAUSE)
                     else:
                         update_inspect(gc, dt)

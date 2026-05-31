@@ -334,6 +334,10 @@ class Game_context:
         self.setup_animations()
         self.load_sounds()
 
+        # Per-frame audio processor. Created once for the whole session (it loads
+        # procedural SFX); reset_game() reuses this instance instead of leaking it.
+        self.audio_effects = AudioEffects(self)
+
     def reset_tutorial_texts(self):
         self.tutorial_texts = [
             "Nas torres frias da escuridao,\ncomeca hoje tua missao.\nJulga os tesouros sem temor,\nanota tudo com rigor.",
@@ -381,8 +385,6 @@ class Game_context:
         self.mimic_eyes.clear()
         self.current_mimic_eyes = None
 
-        self.audio_effects = AudioEffects(self)
-
     def setup_animations(self):
         from item import OBJECT_MODELS
         # Same idle shake for every inspectable object...
@@ -426,6 +428,10 @@ class Game_context:
         self.day_intro_char_count = 0.0
         self.hunger = self.hunger_max
         self.hunger_starve_penalty = 0.0
+        # A new day wipes any curses inflicted the previous day.
+        self.nausea_curse_active = False
+        self.inversion_curse_active = False
+        self.keyhole_curse_active = False
         self.errors_today = 0
         self.items_judged_today = 0
         self.items_correct_today = 0
@@ -880,17 +886,6 @@ class Game_context:
     # SCENE STATE
     # ---------------------------------------------------------------------------
     def make_scene_state(self) -> dict:
-        # ----------------------------------------------------------------------------
-        # CAMERA INITIAL ORIENTATION (pointing at the table center)
-        # ----------------------------------------------------------------------------
-        _dx, _dy, _dz = (self.CAM_TARGET.x - self.CAM_POS.x,
-                    self.CAM_TARGET.y - self.CAM_POS.y,
-                    self.CAM_TARGET.z - self.CAM_POS.z)
-        
-
-        _dl = math.sqrt(_dx*_dx + _dy*_dy + _dz*_dz) or 1.0
-        self._INIT_CAM_YAW   = math.atan2(_dx / _dl, _dz / _dl)
-        self._INIT_CAM_PITCH = math.asin(_dy / _dl)
         self.gs = {
             "paper_open":   False,
             "paper_states":      {},    # key → bool for checkboxes
@@ -907,10 +902,6 @@ class Game_context:
             "spin_angle":        0.0,
             "spin_axis":         (0.0, 1.0, 0.0),
             "drag_dir":          None,
-            "debug":        False,
-            "cam_yaw":      self._INIT_CAM_YAW,
-            "cam_pitch":    self._INIT_CAM_PITCH,
-            "cam_pos":      Vector3(self.CAM_POS.x, self.CAM_POS.y, self.CAM_POS.z),
             "food_msg":     "",
             "food_msg_timer": 0.0,
         }
@@ -927,12 +918,11 @@ class Game_context:
         if self.hunger < 0:
             self.hunger = 0
 
+        self.apply_curses(item)
         tags = []
         if item.atributos.get("VENENOSO"):
-            self.nausea_curse_active = True
             tags.append("envenenado")
         if item.atributos.get("AMALDICOADO"):
-            self.inversion_curse_active = True
             tags.append("amaldicoado")
         if item.atributos.get("RADIOATIVO"):
             tags.append("radioativo")
@@ -961,6 +951,16 @@ class Game_context:
                 self.hunger_starve_penalty -= 1.0
                 self.n_erros += 1
 
+    def apply_curses(self, item):
+        """Activate the visual/audio curse effects carried by a cursed item.
+        Mirrors the curse mapping used when eating tainted food."""
+        if item.atributos.get("VENENOSO"):
+            self.nausea_curse_active = True
+        if item.atributos.get("AMALDICOADO"):
+            self.inversion_curse_active = True
+        if item.atributos.get("RADIOATIVO"):
+            self.keyhole_curse_active = True
+
     def compute_negatives(self, acao: str) -> list[str]:
         penalidade = self.penalidade
         n_erros = self.n_erros
@@ -975,6 +975,8 @@ class Game_context:
                 if atributo in self.negative_acept and acao == "aceitar":
                     penalidade += self.error_costs[atributo]
         if acao == "aceitar":
+            # Accepting a cursed item inflicts its curse on the player.
+            self.apply_curses(self.itens_hoje['to evaluate'][0])
             if self.itens_hoje['to evaluate'][0].atributos["MIMICO"]:
                 penalidade += self.error_costs["MIMICO"] # Passou mimico
             if self.itens_hoje['to evaluate'][0].atributos["MORTE"]:

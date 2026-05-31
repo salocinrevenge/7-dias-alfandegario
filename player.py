@@ -42,13 +42,9 @@ class Player:
         """Inspect HUD — drawn directly on screen after the shader blit."""
         bx = int(dst.x) + 8
         by = int(dst.y + dst.height) - 20
-        if self.gc.gs.get("debug"):
-            rl.draw_text(b"DEBUG CAM  [WASD] Move  [Mouse] Look  [F1] Exit",
-                        bx, by, 11, rl.Color(80, 220, 80, 220))
-        else:
-            rl.draw_text(
-                b"[LMB] Papel   [RMB] Zoom   [P] Pause   [F] Fullscreen   [F1] Debug cam   [K] Painting",
-                bx, by, 11, rl.Color(120, 100, 65, 190))
+        rl.draw_text(
+            b"[LMB] Papel   [RMB] Zoom   [P] Pause   [F] Fullscreen   [K] Painting",
+            bx, by, 11, rl.Color(120, 100, 65, 190))
 
         self._draw_hunger_panel(dst)
         self._draw_food_indicator(dst)
@@ -212,28 +208,3 @@ class Player:
                 rot = rl.matrix_rotate(Vector3(*self.gc.gs["spin_axis"]), self.gc.gs["spin_angle"])
                 self.gc.gs["object_transform"] = rl.matrix_multiply(self.gc.gs["object_transform"], rot)
             self.gc.gs["spin_angle"] *= 0.88
-
-
-    def update_debug_camera(self, dt: float): # 
-        camera = self.gc.camera
-        delta = rl.get_mouse_delta()
-        self.gc.gs["cam_yaw"]   -= delta.x * 0.003
-        self.gc.gs["cam_pitch"] -= delta.y * 0.003
-        self.gc.gs["cam_pitch"]  = max(-1.2, min(1.2, self.gc.gs["cam_pitch"]))
-
-        yaw, pitch = self.gc.gs["cam_yaw"], self.gc.gs["cam_pitch"]
-        dx = math.sin(yaw) * math.cos(pitch)
-        dy = math.sin(pitch)
-        dz = math.cos(yaw) * math.cos(pitch)
-        forward = Vector3(dx, dy, dz)
-        right   = Vector3(math.cos(yaw), 0.0, -math.sin(yaw))
-
-        speed = 3.0 * dt
-        p = self.gc.gs["cam_pos"]
-        if rl.is_key_down(rl.KEY_W): p.x += forward.x*speed; p.y += forward.y*speed; p.z += forward.z*speed
-        if rl.is_key_down(rl.KEY_S): p.x -= forward.x*speed; p.y -= forward.y*speed; p.z -= forward.z*speed
-        if rl.is_key_down(rl.KEY_A): p.x += right.x*speed;   p.z += right.z*speed
-        if rl.is_key_down(rl.KEY_D): p.x -= right.x*speed;   p.z -= right.z*speed
-
-        camera.position = Vector3(p.x, p.y, p.z)
-        camera.target   = Vector3(p.x + dx, p.y + dy, p.z + dz)
