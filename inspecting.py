@@ -1,8 +1,11 @@
 import math
+import random
+import time
 import pyray as rl
 from pyray import Vector2, Vector3
 
 from game_context import Game_context, PAPER_TW, PAPER_TH
+from state import State
 from utils import get_scaled_rect, _screen_to_virtual, wrap_text, draw_text_box
 from animation import get_anim_offset, get_animation
 
@@ -170,6 +173,16 @@ def draw_inspect_3d(gc: Game_context):
         gc.lighting_shader, gc.lighting_viewpos_loc,
         rl.ffi.new("float[3]", [cam.x, cam.y, cam.z]), rl.SHADER_UNIFORM_VEC3)
 
+    # ---- Starvation camera shake ----
+    orig_cam_pos = gc.camera.position
+    if gc.hunger <= 0:
+        intensity = 0.006 + 0.004 * abs(math.sin(time.time() * 3.0))
+        shake_x = (random.random() - 0.5) * intensity
+        shake_y = (random.random() - 0.5) * intensity * 0.6
+        shake_z = (random.random() - 0.5) * intensity * 0.4
+        gc.camera.position = Vector3(
+            orig_cam_pos.x + shake_x, orig_cam_pos.y + shake_y, orig_cam_pos.z + shake_z)
+
     rl.begin_mode_3d(gc.camera)
 
     table_offset = get_anim_offset(gc, "table")
@@ -243,10 +256,9 @@ def draw_inspect_3d(gc: Game_context):
     rl.rl_enable_depth_test()
     rl.end_mode_3d()
 
-    # --- Draw HUD for Errors and Penalties ---
-    # Draw simple text overlay
-    text = f"Erros: {gc.n_erros}   Penalidade: {gc.penalidade}   Tempo: {max(0, int(gc.item_time_left))}s".encode('utf-8')
-    rl.draw_text(text, 20, 20, 20, rl.WHITE)
+    # Restore camera after starvation shake
+    if gc.hunger <= 0:
+        gc.camera.position = orig_cam_pos
 
 
 def send_item(gc: Game_context):
@@ -343,6 +355,8 @@ def _update_object_transition(gc: Game_context, dt: float):
             gc.gs["object_offset"] = Vector3(0.0, 0.0, 0.0)
             gc.item_time_max = max(5, 60 - (gc.dia_atual - 1) * 5)
             gc.item_time_left = gc.item_time_max
+            is_food = _current_is_food(gc)
+            gc.rebake_paper(is_food=is_food)
 
 
 # ---------------------------------------------------------------------------
@@ -379,8 +393,21 @@ def update_magnifier(gc: Game_context, dt: float):
     gc.lens_zoom = _lerp(1.0, gc.MAGNIFY, _smooth(gc.zoom_t))
 
 
+def _current_is_food(gc: Game_context) -> bool:
+    items = gc.itens_hoje.get("to evaluate", [])
+    if not items:
+        return False
+    return items[0].is_food
+
+
 def update_inspect(gc: Game_context, dt: float):
     update_magnifier(gc, dt)
+
+    # Decay food feedback message timer
+    if gc.gs.get("food_msg_timer", 0.0) > 0:
+        gc.gs["food_msg_timer"] -= dt
+        if gc.gs["food_msg_timer"] <= 0:
+            gc.gs["food_msg"] = ""
 
     if rl.is_key_pressed(rl.KEY_F1):
         gc.gs["debug"] = not gc.gs["debug"]
@@ -410,6 +437,7 @@ def update_inspect(gc: Game_context, dt: float):
     if is_open != was_open:
         if is_open:
             gc.paper_anim.open()
+            gc.rebake_paper(is_food=_current_is_food(gc))
         else:
             gc.paper_anim.close()
         gc.gs["paper_open_prev"] = is_open
@@ -438,12 +466,12 @@ def update_inspect(gc: Game_context, dt: float):
         new_hk = item["key"] if (item and item["type"] == "button") else None
         if new_hk != gc.gs.get("paper_hovered_key"):
             gc.gs["paper_hovered_key"] = new_hk
-            gc.rebake_paper(hovered_key=new_hk)
+            gc.rebake_paper(hovered_key=new_hk, is_food=_current_is_food(gc))
 
         if rl.is_key_pressed(rl.KEY_E):
             gc.gs["paper_open"] = False
             gc.gs["paper_hovered_key"] = None
-            gc.rebake_paper()
+            gc.rebake_paper(is_food=_current_is_food(gc))
             return
 
         if rl.is_mouse_button_pressed(rl.MOUSE_BUTTON_LEFT):
@@ -451,7 +479,7 @@ def update_inspect(gc: Game_context, dt: float):
                 # Only put the paper down when the click misses the sheet entirely.
                 gc.gs["paper_open"] = False
                 gc.gs["paper_hovered_key"] = None
-                gc.rebake_paper()
+                gc.rebake_paper(is_food=_current_is_food(gc))
             elif item is None:
                 pass  # clicked the paper but not an interactive element — keep it up
             elif item["type"] == "check":
@@ -472,7 +500,7 @@ def update_inspect(gc: Game_context, dt: float):
                     gc.properties_on_list[prop_map[item["key"]]] = states[item["key"]]
                 print(f"Updated paper state: {item['key']} is now {states[item['key']]}, list: {gc.properties_on_list}")
                     
-                gc.rebake_paper(hovered_key=new_hk)
+                gc.rebake_paper(hovered_key=new_hk, is_food=_current_is_food(gc))
             elif item["type"] == "button":
                 _on_button(gc, item["key"])
         return
@@ -544,13 +572,44 @@ def draw_tutorial_talk(gc: Game_context):
 def _on_button(gc: Game_context, key: str):
     print(f"[paper] {key.upper()} clicked")
 
+    item = gc.itens_hoje['to evaluate'][0] if len(gc.itens_hoje['to evaluate']) > 0 else None
+
+    # --- COMER: eat the food (flat 1-error cost, restores hunger) ---
+    if key == "comer":
+        if not (item and item.is_food):
+            return
+        food_msg = gc.eat_food(item)
+        gc.audio_effects.play("eat" if item.hunger_restore > 0 else "error")
+        gc.n_erros += 1
+        gc.errors_today += 1
+        gc.items_judged_today += 1
+        gc.total_items_judged += 1
+        gc.foods_eaten_today += 1
+        gc.total_foods += 1
+        gc.gs["paper_open"] = False
+        gc.gs["paper_hovered_item"] = None
+        gc.gs["paper_hovered_key"] = None
+        gc.gs["paper_states"] = {}
+        for prop in gc.properties_on_list.keys():
+            gc.properties_on_list[prop] = False
+        gc.rebake_paper(is_food=False)
+        gc.gs["food_msg"] = food_msg
+        gc.gs["food_msg_timer"] = 1.8
+        _start_object_transition(gc, -1)
+        return
+
+    # --- ACEITAR / REJEITAR: normal evaluation ---
+    gc.audio_effects.play(key)
+
     # Kick off the swap: Aceitar swipes the object left, Rejeitar swipes it right.
-    # The actual item advance (send_item) is deferred until the swipe completes and
-    # the paper has settled back down — see _update_object_transition.
     if len(gc.itens_hoje['to evaluate']) > 0:
+        errors_before = gc.n_erros
         _start_object_transition(gc, 1 if key == "aceitar" else -1)
-        neg = gc.compute_negatives(key)
-        
+        gc.compute_negatives(key)
+        if gc.n_erros > errors_before and gc.current_state not in (
+            State.GAME_OVER_EXPLODED, State.GAME_OVER_FIRED
+        ):
+            gc.audio_effects.play("error")
 
     # Put the paper down and reset every checkbox back to its unchecked version.
     gc.gs["paper_open"] = False
@@ -562,4 +621,4 @@ def _on_button(gc: Game_context, key: str):
     for prop in gc.properties_on_list.keys():
         gc.properties_on_list[prop] = False
         
-    gc.rebake_paper()
+    gc.rebake_paper(is_food=False)

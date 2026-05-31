@@ -10,6 +10,7 @@ from transition import Transition
 from item import Item
 from animation import add_shake, TweenAnimation
 from eyes import MimicEyes
+from audio_effects import AudioEffects
 
 # Lines support a leading <tag> that selects a font size (see quad_text.SIZES).
 _PAPER_LINES = [
@@ -27,7 +28,7 @@ _PAPER_LINES = [
     b"<body>Aliados:",
     b"<body>Rivais:",
     b"",
-    b"<h2>                                               Rejeitar Aceitar",
+    b"<h2>              Rejeitar   Comer             Aceitar",
 ]
 
 PAPER_TW, PAPER_TH = 512, 724
@@ -46,13 +47,16 @@ def _is_button_line(text: bytes) -> bool:
 
 
 def _button_rects(font: rl.Font, span: dict) -> dict:
-    """Sub-rects of the two words on the Aceitar/Rejeitar span (texture coords)."""
+    """Sub-rects of the three words (Rejeitar / Comer / Aceitar) in texture coords."""
     text, size = span["text"], span["size"]
     x, y, h    = span["x"], span["y"], span["h"]
-    r_off = text.find(b"Aceitar")
+    c_off = text.find(b"Comer")
+    a_off = text.find(b"Aceitar")
     return {
-        "rejeitar":  (x, y, quad_text.measure(font, b"Rejeitar", size), h),
-        "aceitar": (x + quad_text.measure(font, text[:r_off], size),
+        "rejeitar": (x, y, quad_text.measure(font, b"Rejeitar", size), h),
+        "comer":    (x + quad_text.measure(font, text[:c_off], size),
+                     y, quad_text.measure(font, b"Comer", size), h),
+        "aceitar":  (x + quad_text.measure(font, text[:a_off], size),
                      y, quad_text.measure(font, b"Aceitar", size), h),
     }
 
@@ -75,17 +79,20 @@ def parse_paper_items(layout: list[dict], font: rl.Font) -> list[dict]:
             check_idx += 1
         elif _is_button_line(text):
             rects = _button_rects(font, span)
-            items.append({"type": "button", "key": "aceitar",  "rect": rects["aceitar"]})
             items.append({"type": "button", "key": "rejeitar", "rect": rects["rejeitar"]})
+            items.append({"type": "button", "key": "comer",    "rect": rects["comer"]})
+            items.append({"type": "button", "key": "aceitar",  "rect": rects["aceitar"]})
     return items
 
 
 def _bake_paper_texture(paper_tex, font: rl.Font, layout: list[dict],
                         states: dict | None = None,
-                        hovered_key: str | None = None) -> rl.Texture2D:
+                        hovered_key: str | None = None,
+                        is_food: bool = False) -> rl.Texture2D:
     """Render the paper background + tagged text into a flip-corrected Texture2D.
 
     hovered_key: key of the button whose word is drawn in _INK_HOVER.
+    is_food: if True, a third "Comer" button is drawn between Rejeitar and Aceitar.
     """
     if states is None:
         states = {}
@@ -114,10 +121,17 @@ def _bake_paper_texture(paper_tex, font: rl.Font, layout: list[dict],
             r = _button_rects(font, span)
             ax, ay, _, _ = r["aceitar"]
             rx, ry, _, _ = r["rejeitar"]
-            quad_text.draw_text(font, b"Aceitar",  ax, ay, span["size"],
-                                _INK_HOVER if hovered_key == "aceitar"  else _INK_NORMAL)
+            cx, cy, _, _ = r["comer"]
+            # Rejeitar — always visible
             quad_text.draw_text(font, b"Rejeitar", rx, ry, span["size"],
                                 _INK_HOVER if hovered_key == "rejeitar" else _INK_NORMAL)
+            # Comer — only when the item is food
+            if is_food:
+                quad_text.draw_text(font, b"Comer", cx, cy, span["size"],
+                                    _INK_HOVER if hovered_key == "comer" else _INK_NORMAL)
+            # Aceitar — always visible
+            quad_text.draw_text(font, b"Aceitar", ax, ay, span["size"],
+                                _INK_HOVER if hovered_key == "aceitar" else _INK_NORMAL)
 
         elif text:
             quad_text.draw_span(font, span, _INK_NORMAL)
@@ -284,8 +298,25 @@ class Game_context:
         self.count_until_end_day = self.reset_count_until_end_day
         self.created_room = False
 
+        # Per-day stats (reset each morning, shown in day-end summary)
+        self.errors_today = 0
+        self.items_judged_today = 0
+        self.items_correct_today = 0
+        self.foods_eaten_today = 0
+
+        # Cumulative stats (never reset, shown in end-game screen)
+        self.total_items_judged = 0
+        self.total_correct = 0
+        self.total_foods = 0
+
         self.item_time_max = 60.0
         self.item_time_left = 60.0
+
+        # --- Hunger system ---
+        self.hunger_max = 100.0
+        self.hunger = self.hunger_max
+        self.hunger_decay = 1.8          # points lost per second
+        self.hunger_starve_penalty = 0.0 # accumulates when starving, triggers errors
 
         self.tutorial_texts = [
             "Nas torres frias da escuridao,\ncomeca hoje tua missao.\nJulga os tesouros sem temor,\nanota tudo com rigor.",
@@ -314,6 +345,8 @@ class Game_context:
         except Exception:
             pass
 
+        self.audio_effects = AudioEffects(self)
+
     def setup_animations(self):
         from item import OBJECT_MODELS
         # Same idle shake for every inspectable object...
@@ -339,6 +372,12 @@ class Game_context:
         self.transition.start(State.INSPECT)
         self.day_intro_timer = 2.5
         self.day_intro_char_count = 0.0
+        self.hunger = self.hunger_max
+        self.hunger_starve_penalty = 0.0
+        self.errors_today = 0
+        self.items_judged_today = 0
+        self.items_correct_today = 0
+        self.foods_eaten_today = 0
         print(f"Starting day {self.dia_atual}...")
         self.itens_hoje['to evaluate'] = [Item() for _ in range(self.n_itens_dias.get(self.dia_atual, 15))]
         self.itens_hoje['evaluated'] = []
@@ -617,11 +656,11 @@ class Game_context:
             self.sounds[f"tutorial_{i+1}"] = sound_obj
 
 
-    def rebake_paper(self, hovered_key: str | None = None):
+    def rebake_paper(self, hovered_key: str | None = None, is_food: bool = False):
         """Re-render the paper texture (checkbox states + optional button highlight) and hot-swap on the model."""
         states  = self.gs.get("paper_states", {})
         new_tex = _bake_paper_texture(self.textures["paper_raw"], self.fonts["serif"],
-                                      self.paper_layout, states, hovered_key)
+                                      self.paper_layout, states, hovered_key, is_food)
         rl.unload_texture(self.textures["paper"])
         self.textures["paper"] = new_tex
         self.models["paper"].materials[0].maps[rl.MATERIAL_MAP_DIFFUSE].texture = new_tex
@@ -677,6 +716,8 @@ class Game_context:
                     except Exception:
                         pass
                         
+        if hasattr(self, 'audio_effects') and self.audio_effects:
+            self.audio_effects.unload()
         if hasattr(self, 'music'):
             for m in self.music.values():
                 if m is not None:
@@ -731,11 +772,60 @@ class Game_context:
             "cam_yaw":      self._INIT_CAM_YAW,
             "cam_pitch":    self._INIT_CAM_PITCH,
             "cam_pos":      Vector3(self.CAM_POS.x, self.CAM_POS.y, self.CAM_POS.z),
+            "food_msg":     "",
+            "food_msg_timer": 0.0,
         }
+
+    def eat_food(self, item):
+        """Called when the player rejects a food item — confiscate and eat it.
+        Returns a description string for HUD feedback."""
+        if not item.is_food:
+            return ""
+        restore = item.hunger_restore
+        self.hunger += restore
+        if self.hunger > self.hunger_max:
+            self.hunger = self.hunger_max
+        if self.hunger < 0:
+            self.hunger = 0
+
+        tags = []
+        if item.atributos.get("VENENOSO"):
+            self.nausea_curse_active = True
+            tags.append("envenenado")
+        if item.atributos.get("AMALDICOADO"):
+            self.inversion_curse_active = True
+            tags.append("amaldicoado")
+        if item.atributos.get("RADIOATIVO"):
+            tags.append("radioativo")
+        if item.atributos.get("MIMICO"):
+            tags.append("falso")
+
+        if restore > 0:
+            return f"+{int(restore)} fome"
+        elif restore < 0:
+            bonus = ", ".join(tags)
+            return f"{int(restore)} fome" + (f" ({bonus})" if bonus else "")
+        else:
+            return "nem era comida..."
+
+    def update_hunger(self, dt: float):
+        """Decay hunger over time. Only when an item is actually on the table."""
+        if self.current_state not in (State.INSPECT, State.INTRO):
+            return
+        if self.gs.get("object_hidden") or self.gs.get("pending_first_enter"):
+            return
+        self.hunger -= self.hunger_decay * dt
+        if self.hunger <= 0:
+            self.hunger = 0
+            self.hunger_starve_penalty += dt * 1.2
+            if self.hunger_starve_penalty >= 1.0:
+                self.hunger_starve_penalty -= 1.0
+                self.n_erros += 1
 
     def compute_negatives(self, acao: str) -> list[str]:
         penalidade = self.penalidade
         n_erros = self.n_erros
+        n_erros_before = n_erros
         
         for atributo, valor in self.properties_on_list.items():
             if valor != self.itens_hoje['to evaluate'][0].atributos[atributo]:
@@ -749,6 +839,25 @@ class Game_context:
             if self.itens_hoje['to evaluate'][0].atributos["MIMICO"]:
                 penalidade += self.error_costs["MIMICO"] # Passou mimico
             if self.itens_hoje['to evaluate'][0].atributos["MORTE"]:
+                self.audio_effects.play("explosion")
                 self.transition.start(State.GAME_OVER_EXPLODED)
         self.n_erros = n_erros
         self.penalidade = penalidade
+
+        # Per-day tracking
+        errors_this_item = n_erros - n_erros_before
+        self.items_judged_today += 1
+        self.total_items_judged += 1
+        if errors_this_item == 0:
+            self.items_correct_today += 1
+            self.total_correct += 1
+        self.errors_today += errors_this_item
+
+    def reset_effects(self):
+        """Clear all active curses and hunger — called on restart / return to menu."""
+        self.nausea_curse_active = False
+        self.inversion_curse_active = False
+        self.keyhole_curse_active = False
+        self.hunger = self.hunger_max
+        self.hunger_starve_penalty = 0.0
+        self.painting_enabled = True

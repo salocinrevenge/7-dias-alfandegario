@@ -150,6 +150,7 @@ def update(gc: Game_context, dt: float):
             match gc.current_state:
                 case State.MENU:
                     if rl.is_key_pressed(rl.KEY_ENTER) or rl.is_mouse_button_pressed(rl.MOUSE_BUTTON_LEFT):
+                        gc.reset_effects()
                         gc.transition.start(State.INSPECT)
 
                 case State.INSPECT:
@@ -161,6 +162,9 @@ def update(gc: Game_context, dt: float):
                     if gc.day_intro_timer > 0:
                         gc.day_intro_timer -= dt
                         gc.day_intro_char_count += gc.day_intro_typing_speed * dt
+                        if rl.is_key_pressed(rl.KEY_ENTER):
+                            gc.day_intro_timer = 0
+                            gc.day_intro_char_count = 999
 
                     # On day 1 the tutorial plays once, right after the day card and
                     # before any gameplay / object entry.
@@ -179,6 +183,7 @@ def update(gc: Game_context, dt: float):
                     if rl.is_key_pressed(rl.KEY_P):
                         gc.transition.start(State.INSPECT)
                     elif rl.is_key_pressed(rl.KEY_M):
+                        gc.reset_effects()
                         gc.transition.start(State.MENU)
                 case State.GAME_OVER_FIRED | State.GAME_OVER_WIN | State.GAME_OVER_EXPLODED:
                     from end_states import update_end_state
@@ -363,6 +368,27 @@ def blit_on_screen(gc: Game_context, render_tex=None, src_rect=None, screen_shad
             Vector2(0, 0), 0.0, rl.WHITE,
         )
 
+        # ---- Hunger vignette (reddish edge pulse when starving) ------
+        hunger_ratio = gc.hunger / gc.hunger_max if gc.hunger_max > 0 else 1.0
+        if hunger_ratio < 0.30:
+            alpha = int((1.0 - hunger_ratio / 0.30) * 90)
+            rl.draw_texture_pro(
+                vig,
+                rl.Rectangle(0, 0, float(vig.width), float(vig.height)),
+                dst,
+                Vector2(0, 0), 0.0, rl.Color(180, 20, 10, alpha),
+            )
+
+        # ---- Starvation: gray desaturation + heartbeat pulse ----------
+        if hunger_ratio <= 0:
+            pulse = 0.5 + 0.5 * math.sin(gc.now * 3.3)  # ~100 BPM
+            gray_alpha = int(50 + 35 * pulse)
+            rl.draw_rectangle(
+                int(dst.x), int(dst.y),
+                int(dst.width), int(dst.height),
+                rl.Color(30, 28, 35, gray_alpha),
+            )
+
     # ---- Overlays (unaffected by the painting shader) ---------------
     match gc.current_state:
         case State.MENU:
@@ -372,7 +398,7 @@ def blit_on_screen(gc: Game_context, render_tex=None, src_rect=None, screen_shad
             gc.player.draw_hud(dst)
             if gc.day_intro_timer > 0:
                 sw, sh = rl.get_screen_width(), rl.get_screen_height()
-                # rl.draw_rectangle(0, 0, sw, sh, rl.Color(0, 0, 0, 240)) # Filtro escuro no fundo
+                font = gc.fonts["serif"]
                 
                 day_text = f"Dia {gc.dia_atual}"
                 chars_to_draw = int(gc.day_intro_char_count)
@@ -380,11 +406,48 @@ def blit_on_screen(gc: Game_context, render_tex=None, src_rect=None, screen_shad
                     chars_to_draw = len(day_text)
                     
                 current_day_text = day_text[:chars_to_draw].encode('utf-8')
-                font_size = int(sh * 0.15) # Texto bem maior e proporcional à tela
-                text_width = rl.measure_text_ex(gc.fonts["serif"], current_day_text, font_size, 1).x
+                font_size = int(sh * 0.14)
+                text_width = rl.measure_text_ex(font, current_day_text, font_size, 1).x
 
-                rl.draw_text_ex(gc.fonts["serif"], current_day_text, rl.Vector2((sw - text_width) / 2, (sh - font_size) / 2), font_size, 1, rl.BLACK)
-                rl.draw_text_ex(gc.fonts["serif"], current_day_text, rl.Vector2((sw - text_width) / 2 + 5, (sh - font_size) / 2 + 5), font_size, 1, rl.WHITE)
+                rl.draw_text_ex(font, current_day_text,
+                                rl.Vector2((sw - text_width) / 2, sh * 0.38),
+                                font_size, 1, rl.WHITE)
+
+                # Day summary stats (after title is fully typed, only day 2+)
+                if chars_to_draw >= len(day_text) and gc.dia_atual > 1:
+                    total = gc.items_judged_today
+                    correct = gc.items_correct_today
+                    errors = gc.errors_today
+                    ate = gc.foods_eaten_today
+                    hunger_pct = int(gc.hunger / gc.hunger_max * 100) if gc.hunger_max > 0 else 0
+
+                    lines = [
+                        f"Itens avaliados: {total}",
+                        f"Acertos: {correct}  |  Erros: {errors}",
+                        f"Comidas: {ate}  |  Fome restante: {hunger_pct}%",
+                    ]
+                    grade_color = rl.Color(200, 180, 150, 230)  # default
+                    if total > 0:
+                        pct = int(correct / total * 100)
+                        grade = "S" if pct >= 90 else ("A" if pct >= 70 else ("B" if pct >= 50 else "C"))
+                        grade_color = (rl.Color(90, 200, 70, 255) if pct >= 70 else
+                                       rl.Color(220, 180, 30, 255) if pct >= 50 else
+                                       rl.Color(200, 60, 40, 255))
+                        lines.append(f"Nota: {grade} ({pct}%)")
+
+                    stats_fs = int(sh * 0.032)
+                    for i, line in enumerate(lines):
+                        lb = line.encode("utf-8")
+                        tw = rl.measure_text_ex(font, lb, stats_fs, 1).x
+                        cy = sh * 0.52 + i * (stats_fs * 1.6)
+                        rl.draw_text_ex(font, lb,
+                                        rl.Vector2((sw - tw) / 2, cy),
+                                        stats_fs, 1, grade_color if i == len(lines) - 1 and total > 0
+                                        else rl.Color(200, 180, 150, 230))
+
+                rl.draw_text_ex(font, b"[ENTER] para pular",
+                                rl.Vector2(sw * 0.42, sh * 0.72),
+                                int(sh * 0.022), 1, rl.Color(120, 100, 70, 200))
 
         case State.PAUSE:
             draw_pause(gc.fonts["serif"])
@@ -479,6 +542,10 @@ async def main():
 
         # MUSIC
         gc.update_music()
+        # AUDIO EFFECTS (poison wobble, curse distortion, time pressure, etc.)
+        gc.audio_effects.update(dt)
+        # HUNGER DECAY
+        gc.update_hunger(dt)
 
         #  UPDATE
         update(gc, dt)
