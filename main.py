@@ -163,8 +163,8 @@ def update(gc: Game_context, dt: float):
                         gc.day_intro_char_count += gc.day_intro_typing_speed * dt
 
                     # On day 1 the tutorial plays once, right after the day card and
-                    # before any gameplay / object entry.
-                    if gc.dia_atual == 1 and not gc.tutorial_seen:
+                    # before any gameplay / object entry. (Or on a redo day if seen is reset)
+                    if not gc.tutorial_seen:
                         if gc.day_intro_timer <= 0 and not gc.transition.active:
                             gc.transition.start(State.INTRO)
                     elif rl.is_key_pressed(rl.KEY_P):

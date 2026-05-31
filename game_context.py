@@ -287,18 +287,7 @@ class Game_context:
         self.item_time_max = 60.0
         self.item_time_left = 60.0
 
-        self.tutorial_texts = [
-            "Nas torres frias da escuridao,\ncomeca hoje tua missao.\nJulga os tesouros sem temor,\nanota tudo com rigor.",
-            "Se houver veneno ou maldicao,\nrejeita sem hesitacao.\nSe um mimico ousar chegar,\nnao o deixes atravessar.",
-            "Das terras do inimigo vil,\nnao passes nada ao teu perfil.\nE o Livro Nuclear, em ardor,\nrecusa-o sem nenhum pudor.",
-            "Sete dias tens para provar\nque sabes bem fiscalizar.\nSe muitos erros cometer,\nao posto has de retornar.",
-            "Mas se o fracasso florescer,\nteu cargo iras perder.\nAgora vigia o portao,\ne cumpre tua obrigacao."
-        ]
-
-        self.tutorial_index = 0
-        self.tutorial_char_count = 0.0
-        self.tutorial_typing_speed = 30.0
-        self.tutorial_seen = False   # the intro tutorial only plays once (day 1)
+        self.reset_tutorial_texts()
 
         self.day_intro_timer = 0.0
         self.day_intro_char_count = 0.0
@@ -308,11 +297,25 @@ class Game_context:
         self.mimic_eyes = {}
         self.current_mimic_eyes = None
         self.setup_animations()
-        # Agora que os textos existem, tente carregar os sons do tutorial
-        try:
-            self.load_sounds()
-        except Exception:
-            pass
+        self.load_sounds()
+
+    def reset_tutorial_texts(self):
+        self.tutorial_texts = [
+            "Nas torres frias da escuridao,\ncomeca hoje tua missao.\nJulga os tesouros sem temor,\nanota tudo com rigor.",
+            "Se houver veneno ou maldicao,\nrejeita sem hesitacao.\nSe um mimico ousar chegar,\nnao o deixes atravessar.",
+            "Das terras do inimigo vil,\nnao passes nada ao teu perfil.\nE o Livro Nuclear, em ardor,\nrecusa-o sem nenhum pudor.",
+            "Sete dias tens para provar\nque sabes bem fiscalizar.\nSe muitos erros cometer,\nao posto has de retornar.",
+            "Mas se o fracasso florescer,\nteu cargo iras perder.\nAgora vigia o portao,\ne cumpre tua obrigacao."
+        ]
+        self.tutorial_index = 0
+        self.tutorial_char_count = 0.0
+        self.tutorial_seen = False
+        self.tutorial_typing_speed = 30.0
+        self.tutorial_played_index = -1
+        
+        # Restore original tutorial sound if needed
+        if hasattr(self, "sounds") and "tutorial_1_original" in self.sounds:
+            self.sounds["tutorial_1"] = self.sounds["tutorial_1_original"]
 
     def setup_animations(self):
         from item import OBJECT_MODELS
@@ -325,9 +328,13 @@ class Game_context:
     def start_new_day(self):
         self.created_room = True
         self.make_scene_state()
+        
+        is_redo = False
         if self.penalidade >= self.penalidade_to_day:
             self.dia_atual -= 1
             self.penalidade = 0
+            is_redo = True
+            
         if self.n_erros >= self.erros_to_fire:
             self.transition.start(State.GAME_OVER_FIRED)
             return
@@ -336,7 +343,19 @@ class Game_context:
             self.transition.start(State.GAME_OVER_WIN)
             return
             
-        self.transition.start(State.INSPECT)
+        if is_redo:
+            self.tutorial_texts = ["Nossa alfandegario, voce errou coisa pra caramba, e melhor voce trabalhar mais um dia ai denovo vamos"]
+            self.tutorial_index = 0
+            self.tutorial_char_count = 0.0
+            self.tutorial_seen = False
+            self.tutorial_played_index = -1
+            self.transition.start(State.INSPECT)
+            
+            if hasattr(self, "sounds") and "redo" in self.sounds:
+                self.sounds["tutorial_1"] = self.sounds["redo"]
+        else:
+            self.transition.start(State.INSPECT)
+            
         self.day_intro_timer = 2.5
         self.day_intro_char_count = 0.0
         print(f"Starting day {self.dia_atual}...")
@@ -615,6 +634,14 @@ class Game_context:
                     break
 
             self.sounds[f"tutorial_{i+1}"] = sound_obj
+
+        # Pre-load the redo sound
+        try:
+            self.sounds["redo"] = rl.load_sound(b"sounds/refazer.ogg")
+        except Exception:
+            self.sounds["redo"] = None
+        # Backup original day 1 tutorial
+        self.sounds["tutorial_1_original"] = self.sounds.get("tutorial_1")
 
 
     def rebake_paper(self, hovered_key: str | None = None):
