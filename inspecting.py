@@ -244,9 +244,26 @@ def draw_inspect_3d(gc: Game_context):
     rl.end_mode_3d()
 
     # --- Draw HUD for Errors and Penalties ---
-    # Draw simple text overlay
-    text = f"Erros: {gc.n_erros}   Penalidade: {gc.penalidade}   Tempo: {max(0, int(gc.item_time_left))}s".encode('utf-8')
+    text = f"Erros: {gc.n_erros}   Penalidade: {gc.penalidade}".encode('utf-8')
     rl.draw_text(text, 20, 20, 20, rl.WHITE)
+
+    # Remaining time, big and centered at the top using the main serif font.
+    # Only while an object is actually in front of the player — hidden during the
+    # tutorial and as soon as the object starts swapping away (obj_anim active).
+    if (len(gc.itens_hoje['to evaluate']) > 0
+            and not gc.gs.get("object_hidden")
+            and not gc.gs.get("obj_anim")):
+        font = gc.fonts["serif"]
+        sw = gc.VIRTUAL_W
+        timer_size = int(max(gc.VIRTUAL_H * 0.10, 22))
+        draw_text_box(
+            font,
+            f"{max(0, int(gc.item_time_left))}s",
+            rl.Vector2(sw / 2.0, timer_size + 100),
+            timer_size,
+            align="center",
+            shadow_offset=max(2, int(timer_size * 0.08)),
+        )
 
 
 def send_item(gc: Game_context):

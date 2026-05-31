@@ -9,7 +9,7 @@ from state import State
 from transition import Transition
 from item import Item
 from animation import add_shake, TweenAnimation
-from eyes import MimicEyes
+from mimic import Mimic, unload_appendage_models
 
 # Lines support a leading <tag> that selects a font size (see quad_text.SIZES).
 _PAPER_LINES = [
@@ -360,10 +360,11 @@ class Game_context:
 
         if is_mimic:
             if name not in self.mimic_eyes:
-                eyes = MimicEyes()
+                eyes = Mimic()
                 eyes.setup(self.models[name])
                 self.mimic_eyes[name] = eyes
             self.current_mimic_eyes = self.mimic_eyes[name]
+            self.current_mimic_eyes.new_object()
         else:
             self.current_mimic_eyes = None
 
@@ -416,6 +417,11 @@ class Game_context:
         paper_mesh = rl.gen_mesh_plane(self.PAPER_W, self.PAPER_H, 1, 1)
         self.models["paper"] = rl.load_model_from_mesh(paper_mesh)
         self.models["paper"].materials[0].maps[rl.MATERIAL_MAP_DIFFUSE].texture = self.textures["paper"]
+
+        # Warm the mimic appendage model cache now so the first mimic appearance
+        # mid-game doesn't stutter while loading these heavy models.
+        from mimic import preload_appendage_models
+        preload_appendage_models()
 
     def load_lighting(self):
         """Set up a single Blinn-Phong spotlight from above plus a planar
@@ -686,9 +692,8 @@ class Game_context:
                         pass
 
     def unload_models(self):
-        for eyes in self.mimic_eyes.values():
-            eyes.unload()
         self.mimic_eyes.clear()
+        unload_appendage_models()
         for model in self.models.values():
             rl.unload_model(model)
         if hasattr(self, "lighting_shader"):
