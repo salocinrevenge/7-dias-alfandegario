@@ -12,6 +12,7 @@ from game_context import Game_context
 from state import State
 from player import Player
 from utils import get_scaled_rect, _screen_to_virtual
+from animation import update_animations
 
 # ---------------------------------------------------------------------------
 # DRAW FUNCTIONS
@@ -93,6 +94,7 @@ def update(gc: Game_context, dt: float):
         gc.current_state = new_state
 
     general_inputs(gc)
+    update_animations(gc, dt)
     if not gc.transition.active or not gc.transition._fading_out:
             match gc.current_state:
                 case State.MENU:

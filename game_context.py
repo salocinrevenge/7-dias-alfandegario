@@ -8,6 +8,7 @@ import quad_text
 from state import State
 from transition import Transition
 from item import Item
+from animation import add_shake
 
 # Lines support a leading <tag> that selects a font size (see quad_text.SIZES).
 _PAPER_LINES = [
@@ -265,11 +266,17 @@ class Game_context:
         self.day_intro_timer = 0.0
         self.day_intro_char_count = 0.0
         self.day_intro_typing_speed = 8.0
+
+        self.animations = {}
+        self.setup_animations()
         # Agora que os textos existem, tente carregar os sons do tutorial
         try:
             self.load_sounds()
         except Exception:
             pass
+
+    def setup_animations(self):
+        add_shake(self, "relogio", offset=0.001, velocity=0.3)
 
     def start_new_day(self):
         self.created_room = True
@@ -310,8 +317,8 @@ class Game_context:
         self.models = {}
         self.models["table"]   = rl.load_model(b"models/env/chinese_tea_table_2k.gltf")
         # Inspected-item models, keyed by Item.name ("relogio" / "lista")
-        self.models["relogio"] = rl.load_model(b"models/objects/mantel_clock_01_1k.gltf")
-        self.models["lista"]   = rl.load_model(b"models/objects/papel.gltf")
+        self.models["relogio"] = rl.load_model(b"models/objects/mantel_clock/mantel_clock_01_1k.gltf")
+        self.models["lista"]   = rl.load_model(b"models/objects/papel/papel.gltf")
         # The interactive checklist paper (generated plane + baked text texture)
         paper_mesh = rl.gen_mesh_plane(self.PAPER_W, self.PAPER_H, 1, 1)
         self.models["paper"] = rl.load_model_from_mesh(paper_mesh)
