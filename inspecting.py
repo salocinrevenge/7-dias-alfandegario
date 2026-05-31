@@ -63,10 +63,35 @@ def draw_tutorial_talk(gc: Game_context):
     if gc.tutorial_index >= len(gc.tutorial_texts):
         return
     text = gc.tutorial_texts[gc.tutorial_index]
-    chars_to_draw = int(gc.tutorial_char_count)
-    if chars_to_draw > len(text):
-        chars_to_draw = len(text)
     
-    current_text = text[:chars_to_draw]
+    sw, sh = rl.get_screen_width(), rl.get_screen_height()
+    font_size = int(max(sh * 0.045, 20))
+    padding = int(sw * 0.1)
+    max_w = sw - padding * 2
+
+    # Wrap text dynamically
+    words = text.split(' ')
+    lines = []
+    current_line = []
+    
+    for word in words:
+        test_line = " ".join(current_line + [word])
+        w = rl.measure_text(test_line.encode('utf-8'), font_size)
+        if w > max_w and len(current_line) > 0:
+            lines.append(" ".join(current_line))
+            current_line = [word]
+        else:
+            current_line.append(word)
+    if current_line:
+        lines.append(" ".join(current_line))
+        
+    wrapped_full_text = "\n".join(lines)
+
+    chars_to_draw = int(gc.tutorial_char_count)
+    if chars_to_draw > len(wrapped_full_text):
+        chars_to_draw = len(wrapped_full_text)
+    
+    current_text = wrapped_full_text[:chars_to_draw]
     # Desenhe o balão de fala do tutorial
-    rl.draw_text(current_text.encode('utf-8'), 60, gc.VIRTUAL_H - 130, 20, rl.WHITE)
+    text_y = sh - int(sh * 0.25)
+    rl.draw_text(current_text.encode('utf-8'), padding, text_y, font_size, rl.WHITE)
