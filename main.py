@@ -158,13 +158,13 @@ def blit_on_screen(gc: Game_context, render_tex=None, src_rect=None, painting_sh
     # ---- Overlays (unaffected by the painting shader) ---------------
     match gc.current_state:
         case State.MENU:
-            draw_menu(gc.now, dst, gc.textures["tropiland_font"])
-            
+            draw_menu(gc.now, dst, gc.fonts["serif"])
+
         case State.INSPECT:
             gc.player.draw_hud(dst)
 
         case State.PAUSE:
-            draw_pause(gc.textures["tropiland_font"])
+            draw_pause(gc.fonts["serif"])
             gc.player.draw_hud(dst)
 
     # Transition fade drawn on top of everything
@@ -238,6 +238,7 @@ async def main():
     rl.unload_render_texture(render_tex)
     gc.unload_models()
     gc.unload_textures()
+    gc.unload_fonts()
     rl.close_window()
 
 
