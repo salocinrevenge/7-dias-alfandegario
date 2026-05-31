@@ -1,4 +1,6 @@
 import math
+import random
+import time
 import pyray as rl
 from pyray import Vector2, Vector3
 
@@ -171,6 +173,16 @@ def draw_inspect_3d(gc: Game_context):
         gc.lighting_shader, gc.lighting_viewpos_loc,
         rl.ffi.new("float[3]", [cam.x, cam.y, cam.z]), rl.SHADER_UNIFORM_VEC3)
 
+    # ---- Starvation camera shake ----
+    orig_cam_pos = gc.camera.position
+    if gc.hunger <= 0:
+        intensity = 0.006 + 0.004 * abs(math.sin(time.time() * 3.0))
+        shake_x = (random.random() - 0.5) * intensity
+        shake_y = (random.random() - 0.5) * intensity * 0.6
+        shake_z = (random.random() - 0.5) * intensity * 0.4
+        gc.camera.position = Vector3(
+            orig_cam_pos.x + shake_x, orig_cam_pos.y + shake_y, orig_cam_pos.z + shake_z)
+
     rl.begin_mode_3d(gc.camera)
 
     table_offset = get_anim_offset(gc, "table")
@@ -244,10 +256,9 @@ def draw_inspect_3d(gc: Game_context):
     rl.rl_enable_depth_test()
     rl.end_mode_3d()
 
-    # --- Draw HUD for Errors and Penalties ---
-    # Draw simple text overlay
-    text = f"Erros: {gc.n_erros}   Penalidade: {gc.penalidade}   Tempo: {max(0, int(gc.item_time_left))}s".encode('utf-8')
-    rl.draw_text(text, 20, 20, 20, rl.WHITE)
+    # Restore camera after starvation shake
+    if gc.hunger <= 0:
+        gc.camera.position = orig_cam_pos
 
 
 def send_item(gc: Game_context):
@@ -570,6 +581,9 @@ def _on_button(gc: Game_context, key: str):
         food_msg = gc.eat_food(item)
         gc.audio_effects.play("eat" if item.hunger_restore > 0 else "error")
         gc.n_erros += 1
+        gc.errors_today += 1
+        gc.items_judged_today += 1
+        gc.foods_eaten_today += 1
         gc.gs["paper_open"] = False
         gc.gs["paper_hovered_item"] = None
         gc.gs["paper_hovered_key"] = None

@@ -298,6 +298,12 @@ class Game_context:
         self.count_until_end_day = self.reset_count_until_end_day
         self.created_room = False
 
+        # Per-day stats (reset each morning, shown in day-end summary)
+        self.errors_today = 0
+        self.items_judged_today = 0
+        self.items_correct_today = 0
+        self.foods_eaten_today = 0
+
         self.item_time_max = 60.0
         self.item_time_left = 60.0
 
@@ -363,6 +369,10 @@ class Game_context:
         self.day_intro_char_count = 0.0
         self.hunger = self.hunger_max
         self.hunger_starve_penalty = 0.0
+        self.errors_today = 0
+        self.items_judged_today = 0
+        self.items_correct_today = 0
+        self.foods_eaten_today = 0
         print(f"Starting day {self.dia_atual}...")
         self.itens_hoje['to evaluate'] = [Item() for _ in range(self.n_itens_dias.get(self.dia_atual, 15))]
         self.itens_hoje['evaluated'] = []
@@ -810,6 +820,7 @@ class Game_context:
     def compute_negatives(self, acao: str) -> list[str]:
         penalidade = self.penalidade
         n_erros = self.n_erros
+        n_erros_before = n_erros
         
         for atributo, valor in self.properties_on_list.items():
             if valor != self.itens_hoje['to evaluate'][0].atributos[atributo]:
@@ -827,3 +838,10 @@ class Game_context:
                 self.transition.start(State.GAME_OVER_EXPLODED)
         self.n_erros = n_erros
         self.penalidade = penalidade
+
+        # Per-day tracking
+        errors_this_item = n_erros - n_erros_before
+        self.items_judged_today += 1
+        if errors_this_item == 0:
+            self.items_correct_today += 1
+        self.errors_today += errors_this_item

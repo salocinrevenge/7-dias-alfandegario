@@ -156,6 +156,24 @@ def _gen_stomach_growl() -> bytes:
     return _make_wav_bytes(samples, sr)
 
 
+def _gen_heartbeat() -> bytes:
+    """Two quick low thumps — lub-dub heartbeat. ~0.35s."""
+    sr = 22050
+    dur = 0.35
+    n = int(sr * dur)
+    samples = []
+    for i in range(n):
+        t = i / sr
+        # Two pulses: first at t=0.05, second at t=0.22
+        d1 = abs(t - 0.05) * 40
+        d2 = abs(t - 0.22) * 30
+        thump = (math.exp(-d1 * d1) * 0.8 + math.exp(-d2 * d2) * 0.55)
+        env = max(0.0, 1.0 - t / dur) ** 1.3
+        tone = math.sin(2 * math.pi * 60 * t)
+        samples.append(32767 * env * 0.28 * thump * tone)
+    return _make_wav_bytes(samples, sr)
+
+
 class AudioEffects:
     """Per-frame audio processing reacting to game context state."""
 
@@ -170,6 +188,7 @@ class AudioEffects:
         self._last_tick_time = -999.0
         self._tick_phase = 0  # 0=low, 1=high — alternating beats
         self._last_growl_time = -999.0
+        self._last_heartbeat_time = -999.0
 
         self.sfx: dict[str, rl.Sound | None] = {}
         self._load_sfx()
@@ -184,6 +203,7 @@ class AudioEffects:
             "tick":      _gen_tick,
             "eat":       _gen_eat_munch,
             "growl":     _gen_stomach_growl,
+            "heartbeat": _gen_heartbeat,
         }
         for key, gen in sfx_map.items():
             try:
@@ -223,6 +243,7 @@ class AudioEffects:
         self._apply_music_modulation(dt)
         self._maybe_tick(dt)
         self._maybe_growl(dt)
+        self._maybe_heartbeat(dt)
 
     # ------------------------------------------------------------------
     # Music modulation
@@ -410,6 +431,29 @@ class AudioEffects:
             if snd is not None:
                 try:
                     rl.set_sound_volume(snd, 0.4 + 0.6 * (1.0 - ratio))
+                    rl.play_sound(snd)
+                except Exception:
+                    pass
+
+    # ------------------------------------------------------------------
+    # Heartbeat (starving)
+    # ------------------------------------------------------------------
+
+    def _maybe_heartbeat(self, dt: float):
+        """Lub-dub heartbeat when hunger is at zero."""
+        gc = self.gc
+        if gc.current_state != State.INSPECT:
+            return
+        if gc.hunger > 0:
+            return
+
+        interval = 1.1
+        if self.time - self._last_heartbeat_time >= interval:
+            self._last_heartbeat_time = self.time
+            snd = self.sfx.get("heartbeat")
+            if snd is not None:
+                try:
+                    rl.set_sound_volume(snd, 0.55)
                     rl.play_sound(snd)
                 except Exception:
                     pass
