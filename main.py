@@ -123,7 +123,19 @@ def update(gc: Game_context, dt: float):
                     # Leia qualquer input do mouse ou teclado para pular a introdução
                     if not hasattr(gc, "gs"):
                         gc.make_scene_state()
-                    
+                    # tocar som da estrofe atual ao entrar/avançar
+                    if getattr(gc, 'tutorial_played_index', -1) != gc.tutorial_index and gc.tutorial_index < len(gc.tutorial_texts):
+                        key = f"tutorial_{gc.tutorial_index+1}"
+                        snd = None
+                        if hasattr(gc, 'sounds'):
+                            snd = gc.sounds.get(key)
+                        if snd:
+                            try:
+                                rl.play_sound(snd)
+                            except Exception:
+                                pass
+                        gc.tutorial_played_index = gc.tutorial_index
+
                     gc.tutorial_char_count += gc.tutorial_typing_speed * dt
                     
                     if rl.is_key_pressed(rl.KEY_ENTER) or rl.is_mouse_button_pressed(rl.MOUSE_BUTTON_LEFT):

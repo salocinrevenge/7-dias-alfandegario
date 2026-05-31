@@ -66,24 +66,27 @@ def draw_tutorial_talk(gc: Game_context):
     
     sw, sh = rl.get_screen_width(), rl.get_screen_height()
     font_size = int(max(sh * 0.045, 20))
-    padding = int(sw * 0.1)
+    padding = int(sw * 0.2)
     max_w = sw - padding * 2
 
     # Wrap text dynamically
-    words = text.split(' ')
+    raw_lines = text.split('\n')
     lines = []
-    current_line = []
     
-    for word in words:
-        test_line = " ".join(current_line + [word])
-        w = rl.measure_text(test_line.encode('utf-8'), font_size)
-        if w > max_w and len(current_line) > 0:
+    for raw_line in raw_lines:
+        words = raw_line.split(' ')
+        current_line = []
+        
+        for word in words:
+            test_line = " ".join(current_line + [word])
+            w = rl.measure_text(test_line.encode('utf-8'), font_size)
+            if w > max_w and len(current_line) > 0:
+                lines.append(" ".join(current_line))
+                current_line = [word]
+            else:
+                current_line.append(word)
+        if current_line:
             lines.append(" ".join(current_line))
-            current_line = [word]
-        else:
-            current_line.append(word)
-    if current_line:
-        lines.append(" ".join(current_line))
         
     wrapped_full_text = "\n".join(lines)
 

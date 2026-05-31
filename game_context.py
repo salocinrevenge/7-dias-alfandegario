@@ -37,6 +37,17 @@ class Game_context:
         self.load_models()
         self.load_textures()
 
+        # --- Audio ---
+        try:
+            rl.init_audio_device()
+        except Exception:
+            # plataforma pode não suportar audio (web), ignore falhas
+            pass
+        self.sounds = {}
+        self.tutorial_played_index = -1
+        # tenta carregar sons correspondentes às estrofes (sounds/tutorial_1.wav...)
+        # consulte load_sounds() abaixo (será chamado mais abaixo, após definir os textos)
+
         # --- Camera ---
         self.camera            = rl.Camera3D()
         self.camera.position   = self.CAM_POS
@@ -103,13 +114,13 @@ class Game_context:
         self.created_room = False
 
         self.tutorial_texts = [
-            "Bem vindo ao seu primeiro dia como alfandegário.",
-            "Você deve avaliar os itens que chegarem, catalogando as suas características no papel e aceitando eles.",
-            "Caso suspeite de ser algum mimico, ser envenenado, radioativo, amaldiçoado ou importado de uma nação inimiga, você deve rejeitá-los.",
-            "Caso apareça o livro nuclear, o rejeite, ele pode destruir todos nós.",
-            "Você tem 7 dias de trabalho. Caso erre demais, poderá ter que trabalhar novamente segundo suas cartas de reclamações.",
-            "Se errar demais, será demitido. Bom trabalho!"
+            "Nas torres frias da escuridão,\ncomeça hoje tua missão.\nJulga os tesouros sem temor,\nanota tudo com rigor.",
+            "Se houver veneno ou maldição,\nrejeita sem hesitação.\nSe um mímico ousar chegar,\nnão o deixes atravessar.",
+            "Das terras do inimigo vil,\nnão passes nada ao teu perfil.\nE o Livro Nuclear, em ardor,\nrecusa-o sem nenhum pudor.",
+            "Sete dias tens para provar\nque sabes bem fiscalizar.\nSe muitos erros cometer,\nao posto hás de retornar.",
+            "Mas se o fracasso florescer,\nteu cargo irás perder.\nAgora vigia o portão,\ne cumpre tua obrigação."
         ]
+
         self.tutorial_index = 0
         self.tutorial_char_count = 0.0
         self.tutorial_typing_speed = 30.0
@@ -117,6 +128,11 @@ class Game_context:
         self.day_intro_timer = 0.0
         self.day_intro_char_count = 0.0
         self.day_intro_typing_speed = 8.0
+        # Agora que os textos existem, tente carregar os sons do tutorial
+        try:
+            self.load_sounds()
+        except Exception:
+            pass
 
     def start_new_day(self):
         self.created_room = True
@@ -144,10 +160,35 @@ class Game_context:
         self.models["relogio"] = rl.load_model(b"models/objects/mantel_clock_01_1k.gltf")
         self.models["lista"] = rl.load_model(b"models/objects/papel.gltf")
 
+    def load_sounds(self):
+        # tenta carregar um som para cada tutorial/estrofe.
+        for i in range(len(self.tutorial_texts)):
+            key = f"intro{i+1}"
+            path = f"sounds/{key}.ogg"
+            try:
+                self.sounds[key] = rl.load_sound(path.encode('utf-8'))
+            except Exception:
+                self.sounds[key] = None
+
 
     def unload_textures(self):
-        for tex in self.textures.values():
-            rl.unload_texture(tex)
+        for key, tex in self.textures.items():
+            try:
+                rl.unload_texture(tex)
+            except Exception:
+                # pode ser uma Font ou outro objeto; tente descarregar como fonte
+                try:
+                    rl.unload_font(tex)
+                except Exception:
+                    pass
+        # descarrega sons caso existam
+        if hasattr(self, 'sounds'):
+            for s in self.sounds.values():
+                if s is not None:
+                    try:
+                        rl.unload_sound(s)
+                    except Exception:
+                        pass
 
     def unload_models(self):
         for model in self.models.values():
