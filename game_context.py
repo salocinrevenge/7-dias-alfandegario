@@ -93,7 +93,7 @@ class Game_context:
         self.models = {}
         self.models["table"]  = rl.load_model(b"models/env/chinese_tea_table_2k.gltf")
 
-        # Example: load a separate copy and attach a badge
+        # Example: load a separate copy and attach a badge on a visible surface
         model_copy = rl.load_model(b"models/objects/mantel_clock/mantel_clock_01_1k.gltf")
         self.models["object_badged"] = attach_badge(model_copy, "crown")
 
