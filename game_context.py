@@ -276,7 +276,7 @@ class Game_context:
             pass
 
     def setup_animations(self):
-        add_shake(self, "relogio", intensity=0.015)
+        add_shake(self, "relogio", offset=0.001, velocity=0.3)
 
     def start_new_day(self):
         self.created_room = True
