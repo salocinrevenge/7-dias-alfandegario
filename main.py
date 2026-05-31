@@ -126,18 +126,24 @@ def update(gc: Game_context, dt: float):
             match gc.current_state:
                 case State.MENU:
                     if rl.is_key_pressed(rl.KEY_ENTER):
-                        gc.transition.start(State.INTRO)
+                        gc.transition.start(State.INSPECT)
 
                 case State.INSPECT:
                     # Se ainda n tem gc.gs entao chama o make_scene_state
                     if not gc.created_room:
                         gc.start_new_day()
-                    
+
+                    # The "Dia X" card types out first.
                     if gc.day_intro_timer > 0:
                         gc.day_intro_timer -= dt
                         gc.day_intro_char_count += gc.day_intro_typing_speed * dt
 
-                    if rl.is_key_pressed(rl.KEY_P):
+                    # On day 1 the tutorial plays once, right after the day card and
+                    # before any gameplay / object entry.
+                    if gc.dia_atual == 1 and not gc.tutorial_seen:
+                        if gc.day_intro_timer <= 0 and not gc.transition.active:
+                            gc.transition.start(State.INTRO)
+                    elif rl.is_key_pressed(rl.KEY_P):
                         if gc.gs.get("debug"):
                             gc.gs["debug"] = False
                             rl.enable_cursor()
@@ -156,6 +162,15 @@ def update(gc: Game_context, dt: float):
                         gc.make_scene_state()
                     # tocar som da estrofe atual ao entrar/avançar
                     if getattr(gc, 'tutorial_played_index', -1) != gc.tutorial_index and gc.tutorial_index < len(gc.tutorial_texts):
+                        # interrompe o áudio anterior antes de iniciar o novo
+                        prev = getattr(gc, 'current_tutorial_sound', None)
+                        if prev is not None:
+                            try:
+                                rl.stop_sound(prev)
+                            except Exception:
+                                pass
+                            gc.current_tutorial_sound = None
+
                         key = f"tutorial_{gc.tutorial_index+1}"
                         snd = None
                         if hasattr(gc, 'sounds'):
@@ -163,6 +178,7 @@ def update(gc: Game_context, dt: float):
                         if snd:
                             try:
                                 rl.play_sound(snd)
+                                gc.current_tutorial_sound = snd
                             except Exception:
                                 pass
                         gc.tutorial_played_index = gc.tutorial_index
@@ -177,7 +193,17 @@ def update(gc: Game_context, dt: float):
                             gc.tutorial_index += 1
                             gc.tutorial_char_count = 0.0
                             if gc.tutorial_index >= len(gc.tutorial_texts):
-                                gc.transition.start(State.INSPECT)
+                                prev = getattr(gc, 'current_tutorial_sound', None)
+                                if prev is not None:
+                                    try:
+                                        rl.stop_sound(prev)
+                                    except Exception:
+                                        pass
+                                    gc.current_tutorial_sound = None
+                                # Tutorial done — drop straight back into day 1 (no
+                                # fade); the first object then arcs in.
+                                gc.tutorial_seen = True
+                                gc.current_state = State.INSPECT
 
 
 def draw_on_texture(gc: Game_context, render_tex):

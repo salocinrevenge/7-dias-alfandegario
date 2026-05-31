@@ -74,13 +74,15 @@ def get_mouse_position(gc: Game_context) -> Vector2:
     return raw_mouse
 
 
-def _hit_paper_item(gc: Game_context) -> dict | None:
+def _hit_paper(gc: Game_context) -> tuple[bool, dict | None]:
     """
     Ray-plane hit test → texture pixel → item lookup.
-    Returns the interactive item under the cursor, or None.
+
+    Returns (on_paper, item): whether the cursor ray lands anywhere on the open
+    paper sheet, and the interactive item (checkbox/button) under it if any.
     """
     if gc.paper_anim.current < 0.9:
-        return None
+        return False, None
 
     t_e       = gc.paper_anim.current
     pos, s    = _paper_world_pos_scale(gc, t_e)
@@ -90,10 +92,10 @@ def _hit_paper_item(gc: Game_context) -> dict | None:
     ray  = rl.get_screen_to_world_ray_ex(vpos, gc.camera, gc.VIRTUAL_W, gc.VIRTUAL_H)
 
     if abs(ray.direction.z) < 1e-6:
-        return None
+        return False, None
     t_hit = (pos.z - ray.position.z) / ray.direction.z
     if t_hit <= 0:
-        return None
+        return False, None
 
     hx = ray.position.x + t_hit * ray.direction.x
     hy = ray.position.y + t_hit * ray.direction.y
@@ -101,7 +103,7 @@ def _hit_paper_item(gc: Game_context) -> dict | None:
     hw = gc.PAPER_W / 2 * s
     hh = gc.PAPER_H / 2 * s
     if abs(hx - pos.x) > hw or abs(hy - pos.y) > hh:
-        return None
+        return False, None
 
     # World → local → UV → texture pixel
     local_x =  (hx - pos.x) / s
@@ -112,8 +114,8 @@ def _hit_paper_item(gc: Game_context) -> dict | None:
     for item in gc.gs.get("paper_items", []):
         ix, iy, iw, ih = item["rect"]
         if ix <= tx <= ix + iw and iy <= ty <= iy + ih:
-            return item
-    return None
+            return True, item
+    return True, None
 
 
 # ---------------------------------------------------------------------------
@@ -126,6 +128,11 @@ def _draw_paper(gc: Game_context):
 
     rx = math.radians(_lerp(gc.PAPER_REST_ROT_X, gc.PAPER_OPEN_ROT_X, t_e))
     ry = math.radians(_lerp(gc.PAPER_REST_ROT_Y, gc.PAPER_OPEN_ROT_Y, t_e))
+
+    # Shake only while the paper is lifted toward the player (faded in by t_e); it
+    # stays perfectly still resting on the table.
+    shake = get_anim_offset(gc, "paper")
+    pos = Vector3(pos.x + shake.x * t_e, pos.y + shake.y * t_e, pos.z + shake.z * t_e)
 
     mat = rl.matrix_scale(s, s, s)
     mat = rl.matrix_multiply(mat, rl.matrix_rotate_x(rx))
@@ -143,7 +150,7 @@ def draw_inspect_3d(gc: Game_context):
         gc.textures["bg"],
         rl.Rectangle(0, 0, gc.textures["bg"].width, gc.textures["bg"].height),
         rl.Rectangle(0, 0, gc.VIRTUAL_W, gc.VIRTUAL_H),
-        Vector2(0, 0), 0.0, rl.Color(255, 185, 185, 255),
+        Vector2(0, 0), 0.0, rl.Color(245, 185, 185, 255),
     )
     rl.begin_mode_3d(gc.camera)
 
@@ -155,16 +162,25 @@ def draw_inspect_3d(gc: Game_context):
     )
     rl.draw_model(gc.models["table"], table_pos, gc.TABLE_SCALE, rl.WHITE)
 
-    # Current item under evaluation, rotated by the accumulated arcball transform.
-    if len(gc.itens_hoje['to evaluate']) > 0:
+    # Current item under evaluation, recentred on its bbox, normalised to a common
+    # size and rotated by the accumulated arcball transform.
+    if len(gc.itens_hoje['to evaluate']) > 0 and not gc.gs.get("object_hidden"):
         name = gc.itens_hoje['to evaluate'][0].name
         item_model = gc.models[name]
-        item_model.transform = gc.gs["object_transform"]
+        scale, center = gc.object_fit[name]
+
+        # local order: recentre to origin → arcball-rotate → scale to target size
+        mat = rl.matrix_translate(-center.x, -center.y, -center.z)
+        mat = rl.matrix_multiply(mat, gc.gs["object_transform"])
+        mat = rl.matrix_multiply(mat, rl.matrix_scale(scale, scale, scale))
+        item_model.transform = mat
+
         obj_offset = get_anim_offset(gc, name)
+        swap = gc.gs.get("object_offset") or Vector3(0.0, 0.0, 0.0)
         obj_pos = Vector3(
-            gc.OBJECT_POS.x + obj_offset.x,
-            gc.OBJECT_POS.y + obj_offset.y,
-            gc.OBJECT_POS.z + obj_offset.z,
+            gc.OBJECT_POS.x + obj_offset.x + swap.x,
+            gc.OBJECT_POS.y + obj_offset.y + swap.y,
+            gc.OBJECT_POS.z + obj_offset.z + swap.z,
         )
         rl.draw_model(item_model, obj_pos, 1.0, rl.WHITE)
         item_model.transform = rl.matrix_identity()
@@ -191,6 +207,95 @@ def send_item(gc: Game_context):
 
 
 # ---------------------------------------------------------------------------
+# Object swap animation (swipe-out → parabolic entry)
+# ---------------------------------------------------------------------------
+
+_OBJ_EXIT_DUR   = 0.45   # seconds to swipe the judged object off-screen
+_OBJ_ENTER_DUR  = 0.55   # seconds for the next object to arc into place
+_OBJ_SWIPE_X    = 0.9    # how far (world X) the object slides out
+
+# New object starts low and toward the camera (front edge of the table), then
+# arcs up onto its inspection spot.
+_OBJ_ENTER_START = Vector3(0.0, -0.28, 0.5)
+_OBJ_ENTER_ARC   = 0.18  # peak extra height of the parabola
+
+
+def _smooth(t: float) -> float:
+    return t * t * (3.0 - 2.0 * t)
+
+
+def _start_object_transition(gc: Game_context, direction: int):
+    """Queue an object swap (direction: -1 left, +1 right).
+
+    Starts in the 'wait' phase: nothing moves until the paper has finished
+    returning to the table, then the object swipes out and the next arcs in.
+    """
+    gc.gs["obj_anim"] = {"phase": "wait", "dir": direction, "t": 0.0}
+
+
+def _start_object_enter(gc: Game_context):
+    """Arc the current first object onto the table (used at the start of a day)."""
+    gc.gs["object_hidden"]    = False
+    gc.gs["object_transform"] = rl.matrix_identity()
+    gc.gs["spin_angle"]       = 0.0
+    gc.gs["obj_anim"]         = {"phase": "enter", "dir": 0, "t": 0.0}
+    s = _OBJ_ENTER_START
+    gc.gs["object_offset"]    = Vector3(s.x, s.y, s.z)
+
+
+def _apply_enter(gc: Game_context, t: float):
+    e   = _smooth(t)
+    s   = _OBJ_ENTER_START
+    arc = _OBJ_ENTER_ARC * 4.0 * t * (1.0 - t)   # 0 at ends, peak at midpoint
+    gc.gs["object_offset"] = Vector3(
+        s.x * (1.0 - e),
+        s.y * (1.0 - e) + arc,
+        s.z * (1.0 - e),
+    )
+
+
+def _update_object_transition(gc: Game_context, dt: float):
+    a = gc.gs["obj_anim"]
+
+    if a["phase"] == "wait":
+        # Hold still until the paper is fully back at rest on the table.
+        gc.gs["object_offset"] = Vector3(0.0, 0.0, 0.0)
+        if gc.paper_anim.done and gc.paper_anim.current <= 0.001:
+            a["phase"] = "exit"
+            a["t"]     = 0.0
+        return
+
+    a["t"] += dt
+
+    if a["phase"] == "exit":
+        t = min(1.0, a["t"] / _OBJ_EXIT_DUR)
+        e = _smooth(t)
+        gc.gs["object_offset"] = Vector3(a["dir"] * _OBJ_SWIPE_X * e, -0.1 * e, 0.0)
+
+        if t >= 1.0:
+            send_item(gc)
+            if len(gc.itens_hoje["to evaluate"]) > 0:
+                # Next object arcs in.
+                gc.gs["object_transform"] = rl.matrix_identity()
+                gc.gs["spin_angle"]       = 0.0
+                a["phase"] = "enter"
+                a["t"]     = 0.0
+                _apply_enter(gc, 0.0)
+            else:
+                # Day is over: roll straight into the next day (no extra delay).
+                gc.gs["obj_anim"]      = None
+                gc.gs["object_offset"] = Vector3(0.0, 0.0, 0.0)
+                gc.start_new_day()
+
+    elif a["phase"] == "enter":
+        t = min(1.0, a["t"] / _OBJ_ENTER_DUR)
+        _apply_enter(gc, t)
+        if t >= 1.0:
+            gc.gs["obj_anim"]      = None
+            gc.gs["object_offset"] = Vector3(0.0, 0.0, 0.0)
+
+
+# ---------------------------------------------------------------------------
 # Update
 # ---------------------------------------------------------------------------
 
@@ -202,21 +307,17 @@ def update_inspect(gc: Game_context, dt: float):
         else:
             rl.enable_cursor()
 
-    if rl.is_key_pressed(rl.KEY_S):
-        if len(gc.itens_hoje['to evaluate']) > 0:
-            send_item(gc)
-
     if gc.gs["debug"]:
         gc.player.update_debug_camera(dt)
         return
 
-    # End-of-day countdown: advance once every item has been evaluated.
-    if len(gc.itens_hoje['to evaluate']) == 0:
-        gc.count_until_end_day -= 1
-    if gc.count_until_end_day <= 0:
-        gc.count_until_end_day = gc.reset_count_until_end_day
-        gc.start_new_day()
-        return
+    # Arc the first object in only once the day transition has settled AND the
+    # "Dia X" title animation has finished playing.
+    if (gc.gs.get("pending_first_enter")
+            and not gc.transition.active
+            and gc.day_intro_timer <= 0):
+        gc.gs["pending_first_enter"] = False
+        _start_object_enter(gc)
 
     # Advance paper open/close animation
     was_open = gc.gs.get("paper_open_prev", False)
@@ -230,8 +331,13 @@ def update_inspect(gc: Game_context, dt: float):
 
     gc.paper_anim.update(dt)
 
+    # A swap animation owns the scene until it finishes (no paper/arcball input).
+    if gc.gs.get("obj_anim"):
+        _update_object_transition(gc, dt)
+        return
+
     if gc.gs["paper_open"]:
-        item = _hit_paper_item(gc)
+        on_paper, item = _hit_paper(gc)
         gc.gs["paper_hovered_item"] = item
 
         # Rebake only when the hovered button changes (avoids per-frame rebakes)
@@ -247,10 +353,13 @@ def update_inspect(gc: Game_context, dt: float):
             return
 
         if rl.is_mouse_button_pressed(rl.MOUSE_BUTTON_LEFT):
-            if item is None:
+            if not on_paper:
+                # Only put the paper down when the click misses the sheet entirely.
                 gc.gs["paper_open"] = False
                 gc.gs["paper_hovered_key"] = None
                 gc.rebake_paper()
+            elif item is None:
+                pass  # clicked the paper but not an interactive element — keep it up
             elif item["type"] == "check":
                 states = gc.gs["paper_states"]
                 states[item["key"]] = not states.get(item["key"], False)
@@ -326,5 +435,16 @@ def draw_tutorial_talk(gc: Game_context):
 
 def _on_button(gc: Game_context, key: str):
     print(f"[paper] {key.upper()} clicked")
+
+    # Kick off the swap: Aceitar swipes the object left, Rejeitar swipes it right.
+    # The actual item advance (send_item) is deferred until the swipe completes and
+    # the paper has settled back down — see _update_object_transition.
+    if len(gc.itens_hoje['to evaluate']) > 0:
+        _start_object_transition(gc, -1 if key == "aceitar" else 1)
+
+    # Put the paper down and reset every checkbox back to its unchecked version.
     gc.gs["paper_open"] = False
     gc.gs["paper_hovered_item"] = None
+    gc.gs["paper_hovered_key"] = None
+    gc.gs["paper_states"] = {}
+    gc.rebake_paper()
