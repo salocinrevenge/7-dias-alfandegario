@@ -232,10 +232,9 @@ def draw_on_texture(gc: Game_context, render_tex):
 
 def draw_keyhole_effect(gc, radius=180, tri_h=360, flare_width=240):
     """
-    Draws a negative-space mask using a layered geometric stack:
-    1. Top semi-circle (void covers upwards & sideways)
-    2. Bottom semi-circle (void covers ONLY sideways)
-    3. Bottom trapezoid beam flare
+    Draws a negative-space mask using a layered geometric stack.
+    If the inversion curse is active, it manually flips the rendering arithmetic
+    upside down without altering the 2D matrix camera.
     """
     if not getattr(gc, "keyhole_curse_active", False):
         return
@@ -251,54 +250,79 @@ def draw_keyhole_effect(gc, radius=180, tri_h=360, flare_width=240):
     # Large bounding box constant to clear off-screen space completely
     BOX = 4000.0 
 
-    # ==============================================================
-    # 1. TOP SEMI-CIRCLE (Black covers UPWARDS and SIDEWAYS)
-    # Using draw_ring from 180 to 360 degrees sweeps the top half.
-    # ==============================================================
-    rl.draw_ring(mouse, R, BOX, 180.0, 360.0, 64, rl.BLACK)
+    is_inverted = getattr(gc, "inversion_curse_active", False)
 
-    # ==============================================================
-    # 2. BOTTOM SEMI-CIRCLE (Black covers ONLY SIDEWAYS)
-    # We block out the left and right flanks alongside the lower curve
-    # by drawing rectangles that clip into the circle's side tangents.
-    # ==============================================================
-    # Left flank rectangle alongside the lower semi-circle
-    rl.draw_rectangle(int(M_X - BOX), int(M_Y), int(BOX - R), int(R), rl.BLACK)
-    # Right flank rectangle alongside the lower semi-circle
-    rl.draw_rectangle(int(M_X + R), int(M_Y), int(BOX - R), int(R), rl.BLACK)
-    
-    # Smooth inner corner cleanups filling gaps between the straight box walls 
-    # and the curved lower half of the ring (angles 0 to 180)
-    # rl.draw_ring(mouse, R, BOX, 0.0, 180.0, 64, rl.BLACK)
+    if not is_inverted:
+        # ==============================================================
+        # NORMAL SYSTEM (Points Downwards)
+        # ==============================================================
+        # 1. TOP SEMI-CIRCLE (Black covers UPWARDS and SIDEWAYS)
+        rl.draw_ring(mouse, R, BOX, 180.0, 360.0, 64, rl.BLACK)
 
-    # ==============================================================
-    # 3. TRAPEZOID FLARE (Sits below the middle layer at M_Y + R)
-    # Shifting the top anchor down to the bottom of the circle stack.
-    # ==============================================================
-    start_y = M_Y + R
+        # 2. BOTTOM SEMI-CIRCLE (Black covers ONLY SIDEWAYS)
+        rl.draw_rectangle(int(M_X - BOX), int(M_Y), int(BOX - R), int(R), rl.BLACK)
+        rl.draw_rectangle(int(M_X + R), int(M_Y), int(BOX - R), int(R), rl.BLACK)
 
-    # Bottom Left Voids
-    V_L_TL = rl.Vector2(M_X - BOX, start_y)
-    V_L_TR = rl.Vector2(M_X - R, start_y)
-    V_L_BL = rl.Vector2(M_X - BOX, M_Y + H)
-    V_L_BR = rl.Vector2(M_X - F, M_Y + H)
+        # 3. TRAPEZOID FLARE
+        start_y = M_Y + R
 
-    rl.draw_triangle(V_L_TL, V_L_BL, V_L_BR, rl.BLACK)
-    rl.draw_triangle(V_L_TL, V_L_BR, V_L_TR, rl.BLACK)
+        # Bottom Left Voids
+        V_L_TL = rl.Vector2(M_X - BOX, start_y)
+        V_L_TR = rl.Vector2(M_X - R, start_y)
+        V_L_BL = rl.Vector2(M_X - BOX, M_Y + H)
+        V_L_BR = rl.Vector2(M_X - F, M_Y + H)
 
-    # Bottom Right Voids
-    V_R_TL = rl.Vector2(M_X + BOX, start_y)
-    V_R_TR = rl.Vector2(M_X + R, start_y)
-    V_R_BL = rl.Vector2(M_X + BOX, M_Y + H)
-    V_R_BR = rl.Vector2(M_X + F, M_Y + H)
+        rl.draw_triangle(V_L_TL, V_L_BL, V_L_BR, rl.BLACK)
+        rl.draw_triangle(V_L_TL, V_L_BR, V_L_TR, rl.BLACK)
 
-    rl.draw_triangle(V_R_TL, V_R_BR, V_R_BL, rl.BLACK)
-    rl.draw_triangle(V_R_TL, V_R_TR, V_R_BR, rl.BLACK)
+        # Bottom Right Voids
+        V_R_TL = rl.Vector2(M_X + BOX, start_y)
+        V_R_TR = rl.Vector2(M_X + R, start_y)
+        V_R_BL = rl.Vector2(M_X + BOX, M_Y + H)
+        V_R_BR = rl.Vector2(M_X + F, M_Y + H)
 
-    # ==============================================================
-    # 4. DEEP FLOOR VOID
-    # ==============================================================
-    rl.draw_rectangle(int(M_X - BOX), int(M_Y + H), int(BOX * 2), int(BOX), rl.BLACK)
+        rl.draw_triangle(V_R_TL, V_R_BR, V_R_BL, rl.BLACK)
+        rl.draw_triangle(V_R_TL, V_R_TR, V_R_BR, rl.BLACK)
+
+        # 4. DEEP FLOOR VOID
+        rl.draw_rectangle(int(M_X - BOX), int(M_Y + H), int(BOX * 2), int(BOX), rl.BLACK)
+
+    else:
+        # ==============================================================
+        # INVERTED SYSTEM (Points Upwards)
+        # ==============================================================
+        # 1. BOTTOM SEMI-CIRCLE (Black covers DOWNWARDS and SIDEWAYS)
+        # Sweeping 0 to 180 degrees targets the lower half of the screen
+        rl.draw_ring(mouse, R, BOX, 0.0, 180.0, 64, rl.BLACK)
+
+        # 2. TOP SEMI-CIRCLE (Black covers ONLY SIDEWAYS)
+        # Rectangles shift upwards by the radius height to flank the circle
+        rl.draw_rectangle(int(M_X - BOX), int(M_Y - R), int(BOX - R), int(R), rl.BLACK)
+        rl.draw_rectangle(int(M_X + R), int(M_Y - R), int(BOX - R), int(R), rl.BLACK)
+
+        # 3. TRAPEZOID FLARE (Extends upwards along negative Y coordinates)
+        start_y = M_Y - R
+
+        # Top Left Voids (Winding sequence rewritten to match CCW orientation)
+        V_L_BL = rl.Vector2(M_X - R, start_y)
+        V_L_BR = rl.Vector2(M_X - BOX, start_y)
+        V_L_TL = rl.Vector2(M_X - F, M_Y - H)
+        V_L_TR = rl.Vector2(M_X - BOX, M_Y - H)
+
+        rl.draw_triangle(V_L_BL, V_L_TL, V_L_TR, rl.BLACK)
+        rl.draw_triangle(V_L_BL, V_L_TR, V_L_BR, rl.BLACK)
+
+        # Top Right Voids (Winding sequence rewritten to match CCW orientation)
+        V_R_BL = rl.Vector2(M_X + R, start_y)
+        V_R_BR = rl.Vector2(M_X + BOX, start_y)
+        V_R_TL = rl.Vector2(M_X + F, M_Y - H)
+        V_R_TR = rl.Vector2(M_X + BOX, M_Y - H)
+
+        rl.draw_triangle(V_R_BL, V_R_TR, V_R_TL, rl.BLACK)
+        rl.draw_triangle(V_R_BL, V_R_BR, V_R_TR, rl.BLACK)
+
+        # 4. DEEP CEILING VOID (Fills the entire remaining zone above the flare)
+        rl.draw_rectangle(int(M_X - BOX), int(M_Y - H - BOX), int(BOX * 2), int(BOX), rl.BLACK)
 
 
 def blit_on_screen(gc: Game_context, render_tex=None, src_rect=None, painting_shader=None):
