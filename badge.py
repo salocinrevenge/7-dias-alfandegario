@@ -131,7 +131,111 @@ def _has_transparency(img):
     return any(data[i] < 255 for i in range(3, size, 4))
 
 
-def _stamp_to_texture(tex, badge_img, px: int, py: int):
+def _apply_degradation(img, px: int, py: int, bw: int, bh: int, degradation: float):
+    """Destroy the badge region to look like a heavily aged, cracked,
+    torn sticker.
+
+    *degradation*: 0 = pristine, 1 = barely recognisable fragments.
+    """
+    if degradation <= 0.0:
+        return
+
+    data = rl.ffi.cast("unsigned char *", img.data)
+    stride = img.width * 4
+
+    # ---- 1. destruction map (cell grid) -----------------------------------
+    # Larger cells → chunkier destruction.  At 1.0 the cells are big so
+    # whole pieces of the sticker are missing.
+    cell = max(2, int(12 * (1.0 - degradation * 0.8)))
+    gw = (bw + cell - 1) // cell
+    gh = (bh + cell - 1) // cell
+
+    destroy = [[0.0] * gw for _ in range(gh)]
+    for gy in range(gh):
+        for gx in range(gw):
+            # Edge-wear bias
+            cx = (gx + 0.5) * cell / bw
+            cy = (gy + 0.5) * cell / bh
+            edge = ((cx - 0.5) ** 2 + (cy - 0.5) ** 2) * 2.5
+            edge = min(edge, 1.0)
+
+            # Roughly half the cells get heavy destruction, the rest light
+            destroy[gy][gx] = degradation * (0.3 + 0.5 * edge + 0.2 * random.random())
+
+    # ---- 2. apply destruction per-pixel -----------------------------------
+    for y in range(bh):
+        gy = min(y // cell, gh - 1)
+        for x in range(bw):
+            gx = min(x // cell, gw - 1)
+            d = destroy[gy][gx]
+
+            # Add fine per-pixel jitter inside the cell
+            d = d + random.uniform(-0.12, 0.12) * degradation
+            if d < 0.0:
+                d = 0.0
+            if d > 1.0:
+                d = 1.0
+
+            idx = (py + y) * stride + (px + x) * 4
+            a = data[idx + 3]
+            if a == 0:
+                continue
+
+            r, g, b, a = data[idx], data[idx + 1], data[idx + 2], data[idx + 3]
+
+            # Surviving fraction (aggressive: at d=0.7 almost nothing left)
+            survive = max(0.0, 1.0 - d * 1.4)
+            a = int(a * survive)
+
+            # Colour washes out proportionally
+            grey = (r + g + b) // 3
+            wash = 0.2 + d * 0.8
+            r = int(r * (1.0 - wash) + grey * wash)
+            g = int(g * (1.0 - wash) + grey * wash)
+            b = int(b * (1.0 - wash) + grey * wash)
+
+            data[idx] = r
+            data[idx + 1] = g
+            data[idx + 2] = b
+            data[idx + 3] = a
+
+    # ---- 3. box blur (age / wear softness) --------------------------------
+    blur_radius = int(degradation * 5)
+    if blur_radius < 1:
+        return
+
+    # Snapshot the badge region so we blur from the pre-blur state
+    region = []
+    for y in range(bh):
+        row = []
+        for x in range(bw):
+            i = (py + y) * stride + (px + x) * 4
+            row.append((data[i], data[i + 1], data[i + 2], data[i + 3]))
+        region.append(row)
+
+    for y in range(bh):
+        for x in range(bw):
+            r_sum = g_sum = b_sum = a_sum = 0
+            count = 0
+            for dy in range(-blur_radius, blur_radius + 1):
+                for dx in range(-blur_radius, blur_radius + 1):
+                    ny, nx = y + dy, x + dx
+                    if 0 <= ny < bh and 0 <= nx < bw:
+                        pr, pg, pb, pa = region[ny][nx]
+                        r_sum += pr
+                        g_sum += pg
+                        b_sum += pb
+                        a_sum += pa
+                        count += 1
+
+            idx = (py + y) * stride + (px + x) * 4
+            data[idx] = r_sum // count
+            data[idx + 1] = g_sum // count
+            data[idx + 2] = b_sum // count
+            data[idx + 3] = a_sum // count
+
+
+def _stamp_to_texture(tex, badge_img, px: int, py: int, degradation: float = 0.0):
     """Load *tex* to image, stamp *badge_img* at (px, py), return a new GPU
     texture.  Returns None on failure (image load, transparency, or GPU upload)."""
     model_img = rl.load_image_from_texture(tex)
@@ -153,6 +257,9 @@ def _stamp_to_texture(tex, badge_img, px: int, py: int):
     dst = rl.Rectangle(float(px), float(py), float(bw), float(bh))
     rl.image_draw(model_img, badge_img, src, dst, rl.WHITE)
 
+    if degradation > 0.0:
+        _apply_degradation(model_img, px, py, bw, bh, degradation)
+
     new_tex = rl.load_texture_from_image(model_img)
     rl.unload_image(model_img)
 
@@ -167,7 +274,7 @@ def _stamp_to_texture(tex, badge_img, px: int, py: int):
 # Public API
 # ---------------------------------------------------------------------------
 
-def attach_badge(model, badge_name: str, scale: float = 0.25):
+def attach_badge(model, badge_name: str, scale: float = 0.25, degradation: float = 0.2):
     """Blend a badge image onto every real texture of *model* at a random
     position that lies *within* a contiguous UV island (so the badge is never
     cut in half by a seam).
@@ -175,10 +282,12 @@ def attach_badge(model, badge_name: str, scale: float = 0.25):
     Textures shared by multiple materials are processed only once.
 
     Args:
-        model:      A raylib Model.
-        badge_name: Badge filename without extension (e.g. ``'crown'``).
-        scale:      Resize the badge by this factor before stamping
-                    (default 0.25 → 32×32 px from the original 128×128).
+        model:       A raylib Model.
+        badge_name:  Badge filename without extension (e.g. ``'crown'``).
+        scale:       Resize the badge by this factor before stamping
+                     (default 0.25 → 32×32 px from the original 128×128).
+        degradation: 0 = pristine sticker, 1 = nearly invisible.
+                     Adds edge-wear, colour fading, grain, and flaking.
 
     Returns:
         The same *model* with its texture(s) modified in-place.
@@ -214,7 +323,7 @@ def attach_badge(model, badge_name: str, scale: float = 0.25):
             processed[tex.id] = tex
             continue
 
-        new_tex = _stamp_to_texture(tex, badge_img, *pos)
+        new_tex = _stamp_to_texture(tex, badge_img, *pos, degradation)
         if new_tex is None:
             processed[tex.id] = tex
             continue
