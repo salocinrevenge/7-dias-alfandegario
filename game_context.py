@@ -298,7 +298,7 @@ class Game_context:
         self.created_room = True
         self.make_scene_state()
         self.transition.start(State.INSPECT)
-        if self.penalidade_to_day >= self.penalidade:
+        if self.penalidade  >= self.penalidade_to_day:
             self.dia_atual -= 1
             self.penalidade -= self.penalidade_to_day
         if self.n_erros >= self.erros_to_fire:
@@ -496,8 +496,8 @@ class Game_context:
         }
 
     def compute_negatives(self, acao: str) -> list[str]:
-        penalidade = 0
-        n_erros = 0
+        penalidade = self.penalidade
+        n_erros = self.n_erros
         
         for atributo, valor in self.properties_on_list.items():
             if valor != self.itens_hoje['to evaluate'][0].atributos[atributo]:

@@ -193,6 +193,11 @@ def draw_inspect_3d(gc: Game_context):
     rl.rl_enable_depth_test()
     rl.end_mode_3d()
 
+    # --- Draw HUD for Errors and Penalties ---
+    # Draw simple text overlay
+    text = f"Erros: {gc.n_erros}   Penalidade: {gc.penalidade}".encode('utf-8')
+    rl.draw_text(text, 20, 20, 20, rl.WHITE)
+
 
 def send_item(gc: Game_context):
     gc.itens_hoje['evaluated'].append(gc.itens_hoje['to evaluate'].pop(0))
