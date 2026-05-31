@@ -8,6 +8,7 @@ import quad_text
 from state import State
 from transition import Transition
 from item import Item
+from animation import add_shake
 
 # Lines support a leading <tag> that selects a font size (see quad_text.SIZES).
 _PAPER_LINES = [
@@ -265,11 +266,17 @@ class Game_context:
         self.day_intro_timer = 0.0
         self.day_intro_char_count = 0.0
         self.day_intro_typing_speed = 8.0
+
+        self.animations = {}
+        self.setup_animations()
         # Agora que os textos existem, tente carregar os sons do tutorial
         try:
             self.load_sounds()
         except Exception:
             pass
+
+    def setup_animations(self):
+        add_shake(self, "relogio", intensity=0.015)
 
     def start_new_day(self):
         self.created_room = True

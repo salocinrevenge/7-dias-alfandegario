@@ -4,6 +4,7 @@ from pyray import Vector2, Vector3
 
 from game_context import Game_context, PAPER_TW, PAPER_TH
 from utils import get_scaled_rect, _screen_to_virtual
+from animation import get_anim_offset
 
 
 # ---------------------------------------------------------------------------
@@ -138,13 +139,27 @@ def draw_inspect_3d(gc: Game_context):
         Vector2(0, 0), 0.0, rl.Color(255, 185, 185, 255),
     )
     rl.begin_mode_3d(gc.camera)
-    rl.draw_model(gc.models["table"], gc.TABLE_POS, gc.TABLE_SCALE, rl.WHITE)
+
+    table_offset = get_anim_offset(gc, "table")
+    table_pos = Vector3(
+        gc.TABLE_POS.x + table_offset.x,
+        gc.TABLE_POS.y + table_offset.y,
+        gc.TABLE_POS.z + table_offset.z,
+    )
+    rl.draw_model(gc.models["table"], table_pos, gc.TABLE_SCALE, rl.WHITE)
 
     # Current item under evaluation, rotated by the accumulated arcball transform.
     if len(gc.itens_hoje['to evaluate']) > 0:
-        item_model = gc.models[gc.itens_hoje['to evaluate'][0].name]
+        name = gc.itens_hoje['to evaluate'][0].name
+        item_model = gc.models[name]
         item_model.transform = gc.gs["object_transform"]
-        rl.draw_model(item_model, gc.OBJECT_POS, 1.0, rl.WHITE)
+        obj_offset = get_anim_offset(gc, name)
+        obj_pos = Vector3(
+            gc.OBJECT_POS.x + obj_offset.x,
+            gc.OBJECT_POS.y + obj_offset.y,
+            gc.OBJECT_POS.z + obj_offset.z,
+        )
+        rl.draw_model(item_model, obj_pos, 1.0, rl.WHITE)
         item_model.transform = rl.matrix_identity()
 
     # Paper is always drawn on top of the table (depth test off avoids z-fighting).
