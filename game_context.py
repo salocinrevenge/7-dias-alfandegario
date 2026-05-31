@@ -1005,20 +1005,32 @@ class Game_context:
         n_erros = self.n_erros
         n_erros_before = n_erros
         
+        item = self.itens_hoje['to evaluate'][0]
+
+        # Checklist audit: count every property the player mis-identified on the
+        # paper. This feeds the HUD "Erros" tally only — it must NOT drive the
+        # per-day redo penalty, or near-ubiquitous marks (e.g. REAL, true on
+        # ~99% of items) would force a redo every day no matter how well the
+        # player actually judged the item.
         for atributo, valor in self.properties_on_list.items():
-            if valor != self.itens_hoje['to evaluate'][0].atributos[atributo]:
-                penalidade += self.error_costs[atributo]
+            if valor != item.atributos[atributo]:
                 n_erros += 1
-                if atributo in self.positive_rejects and acao == "rejeitar":
-                    penalidade += self.error_costs[atributo]
-                if atributo in self.negative_acept and acao == "aceitar":
-                    penalidade += self.error_costs[atributo]
+
+        # Penalidade is judged on the VERDICT itself: you only pay when the
+        # accept/reject call was wrong for a property the item really carries.
+        for atributo, present in item.atributos.items():
+            if not present:
+                continue
+            if acao == "rejeitar" and atributo in self.positive_rejects:
+                penalidade += self.error_costs[atributo]  # rejected something good
+            if acao == "aceitar" and atributo in self.negative_acept:
+                penalidade += self.error_costs[atributo]  # accepted something bad
+
         if acao == "aceitar":
-            # Accepting a cursed item inflicts its curse on the player.
-            self.apply_curses(self.itens_hoje['to evaluate'][0])
-            if self.itens_hoje['to evaluate'][0].atributos["MIMICO"]:
-                penalidade += self.error_costs["MIMICO"] # Passou mimico
-            if self.itens_hoje['to evaluate'][0].atributos["MORTE"]:
+            # Accepting a cursed item inflicts its curse on the player. (MIMICO's
+            # penalty is already covered by negative_acept above.)
+            self.apply_curses(item)
+            if item.atributos["MORTE"]:
                 self.audio_effects.play("explosion")
                 self.transition.start(State.GAME_OVER_EXPLODED)
         self.n_erros = n_erros

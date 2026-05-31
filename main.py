@@ -438,9 +438,9 @@ def blit_on_screen(gc: Game_context, render_tex=None, src_rect=None, screen_shad
     gc.transition.draw()
 
     # Shader toggle indicator
-    label = b"[K] Painting: ON " if gc.painting_enabled else b"[K] Painting: OFF"
-    col   = rl.Color(220, 175, 70, 200) if gc.painting_enabled else rl.Color(100, 90, 70, 140)
-    rl.draw_text(label, 8, 8, 11, col)
+    # label = b"[K] Painting: ON " if gc.painting_enabled else b"[K] Painting: OFF"
+    # col   = rl.Color(220, 175, 70, 200) if gc.painting_enabled else rl.Color(100, 90, 70, 140)
+    # rl.draw_text(label, 8, 8, 11, col)
 
     rl.end_drawing()
 

@@ -42,9 +42,9 @@ class Player:
         """Inspect HUD — drawn directly on screen after the shader blit."""
         bx = int(dst.x) + 8
         by = int(dst.y + dst.height) - 20
-        rl.draw_text(
-            b"[LMB] Papel   [RMB] Zoom   [P] Pause   [F] Fullscreen   [K] Painting",
-            bx, by, 11, rl.Color(120, 100, 65, 190))
+        # rl.draw_text(
+            # b"[LMB] Papel   [RMB] Zoom   [P] Pause   [F] Fullscreen   [K] Painting",
+            # bx, by, 11, rl.Color(120, 100, 65, 190))
 
         self._draw_hunger_panel(dst)
         self._draw_food_indicator(dst)
