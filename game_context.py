@@ -304,6 +304,11 @@ class Game_context:
         self.items_correct_today = 0
         self.foods_eaten_today = 0
 
+        # Cumulative stats (never reset, shown in end-game screen)
+        self.total_items_judged = 0
+        self.total_correct = 0
+        self.total_foods = 0
+
         self.item_time_max = 60.0
         self.item_time_left = 60.0
 
@@ -842,6 +847,8 @@ class Game_context:
         # Per-day tracking
         errors_this_item = n_erros - n_erros_before
         self.items_judged_today += 1
+        self.total_items_judged += 1
         if errors_this_item == 0:
             self.items_correct_today += 1
+            self.total_correct += 1
         self.errors_today += errors_this_item

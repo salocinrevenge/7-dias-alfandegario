@@ -583,7 +583,9 @@ def _on_button(gc: Game_context, key: str):
         gc.n_erros += 1
         gc.errors_today += 1
         gc.items_judged_today += 1
+        gc.total_items_judged += 1
         gc.foods_eaten_today += 1
+        gc.total_foods += 1
         gc.gs["paper_open"] = False
         gc.gs["paper_hovered_item"] = None
         gc.gs["paper_hovered_key"] = None
