@@ -184,7 +184,7 @@ def draw_inspect_3d(gc: Game_context):
     # size and rotated by the accumulated arcball transform.
     if len(gc.itens_hoje['to evaluate']) > 0 and not gc.gs.get("object_hidden"):
         name = gc.itens_hoje['to evaluate'][0].name
-        item_model = gc.models[name]
+        item_model = gc.inspect_model(name)
         scale, center = gc.object_fit[name]
 
         # local order: recentre to origin → arcball-rotate → scale to target size
@@ -413,7 +413,8 @@ def update_inspect(gc: Game_context, dt: float):
     if gc.current_mimic_eyes is not None and len(gc.itens_hoje.get('to evaluate', [])) > 0:
         name = gc.itens_hoje['to evaluate'][0].name
         anim = get_animation(gc, name)
-        gc.current_mimic_eyes.update(dt, gc.models[name], anim)
+        view_rot, cam_dir = gc.mimic_view_args()
+        gc.current_mimic_eyes.update(dt, gc.models[name], anim, view_rot, cam_dir)
 
     if (gc.gs.get("pending_first_enter")
             and not gc.transition.active

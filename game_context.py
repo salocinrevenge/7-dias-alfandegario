@@ -7,9 +7,11 @@ import time
 import quad_text
 from state import State
 from transition import Transition
-from item import Item
+import random
+from item import Item, OBJECT_MODELS
 from animation import add_shake, TweenAnimation
 from mimic import Mimic, unload_appendage_models
+from badge import attach_badge
 
 # Lines support a leading <tag> that selects a font size (see quad_text.SIZES).
 _PAPER_LINES = [
@@ -23,9 +25,6 @@ _PAPER_LINES = [
     b"<h1>[ ] Aliado ?",
     b"<h1>[ ] Rival ?",
     b"<small>",
-    b"<body>Maldicoes:",
-    b"<body>Aliados:",
-    b"<body>Rivais:",
     b"",
     b"<h2>                                               Rejeitar Aceitar",
 ]
@@ -296,6 +295,11 @@ class Game_context:
         self.animations = {}
         self.mimic_eyes = {}
         self.current_mimic_eyes = None
+        # A fresh, badge-stamped copy of the current item's model (badges depend
+        # on the item instance's random attributes, so the shared pristine model
+        # in self.models is never touched). None → draw the pristine model.
+        self.current_item_model = None
+        self.current_item_model_name = None
         self.setup_animations()
         self.load_sounds()
 
@@ -316,6 +320,35 @@ class Game_context:
         # Restore original tutorial sound if needed
         if hasattr(self, "sounds") and "tutorial_1_original" in self.sounds:
             self.sounds["tutorial_1"] = self.sounds["tutorial_1_original"]
+
+    def reset_game(self):
+        """Restore all gameplay progress to a fresh start, keeping loaded
+        resources (fonts/textures/models/sounds). Called whenever we return to
+        the menu or finish a run so the next playthrough begins clean."""
+        self.n_erros = 0
+        self.penalidade = 0
+        self.dia_atual = 0
+        self.count_until_end_day = self.reset_count_until_end_day
+        self.created_room = False
+        self.itens_hoje = {'to evaluate': [], 'evaluated': []}
+
+        self.item_time_max = 60.0
+        self.item_time_left = 60.0
+
+        self.day_intro_timer = 0.0
+        self.day_intro_char_count = 0.0
+
+        for key in self.properties_on_list:
+            self.properties_on_list[key] = False
+
+        # Tutorial back to its day-1 state (resets index/seen/char counters too).
+        self.reset_tutorial_texts()
+        self.current_tutorial_sound = None
+
+        # Per-item visual state.
+        self._clear_current_item_model()
+        self.mimic_eyes.clear()
+        self.current_mimic_eyes = None
 
     def setup_animations(self):
         from item import OBJECT_MODELS
@@ -367,6 +400,18 @@ class Game_context:
         self.gs["object_hidden"]       = True
         self.gs["pending_first_enter"] = True
 
+    def mimic_view_args(self):
+        """(object world-rotation, world-space object→camera direction) used by
+        the mimic to keep its trait on the side facing away from the camera."""
+        cp, op = self.camera.position, self.OBJECT_POS
+        dx, dy, dz = cp.x - op.x, cp.y - op.y, cp.z - op.z
+        length = math.sqrt(dx * dx + dy * dy + dz * dz) or 1.0
+        cam_dir = Vector3(dx / length, dy / length, dz / length)
+        view_rot = self.gs.get("object_transform") if hasattr(self, "gs") else None
+        if view_rot is None:
+            view_rot = rl.matrix_identity()
+        return view_rot, cam_dir
+
     def _ensure_mimic_eyes_for_current(self):
         items = self.itens_hoje.get('to evaluate', [])
         if not items:
@@ -380,12 +425,72 @@ class Game_context:
         if is_mimic:
             if name not in self.mimic_eyes:
                 eyes = Mimic()
-                eyes.setup(self.models[name])
+                eyes.setup(self.models[name], *self.mimic_view_args())
                 self.mimic_eyes[name] = eyes
             self.current_mimic_eyes = self.mimic_eyes[name]
             self.current_mimic_eyes.new_object()
         else:
             self.current_mimic_eyes = None
+
+        self.apply_badges_for_current()
+
+    # Badge images (under textures/) keyed by the Item attribute that triggers
+    # them. Aliado/Inimigo have interchangeable variants; the curses are stamped
+    # when the item is AMALDICOADO (a random one) and/or VENENOSO (venenoso).
+    _ALIADO_VARIANTS = ("Aliado1", "Aliado2", "Aliado3")
+    _INIMIGO_VARIANTS = ("Inimigo1", "Inimigo2", "Inimigo3")
+    _CURSE_VARIANTS = ("venenoso", "chave", "inverter")
+
+    def _badges_for_item(self, item) -> list[str]:
+        """The badge image names to stamp for *item*, per its attributes."""
+        a = item.atributos
+        badges: list[str] = []
+        if a.get("ALIADOS"):
+            badges.append(random.choice(self._ALIADO_VARIANTS))
+        if a.get("RIVAIS"):
+            badges.append(random.choice(self._INIMIGO_VARIANTS))
+        if a.get("VENENOSO"):
+            badges.append("venenoso")
+        if a.get("AMALDICOADO"):
+            badges.append(random.choice(self._CURSE_VARIANTS))
+        # Avoid stamping the same curse twice (e.g. VENENOSO + AMALDICOADO→venenoso).
+        return list(dict.fromkeys(badges))
+
+    def _clear_current_item_model(self):
+        if self.current_item_model is not None:
+            rl.unload_model(self.current_item_model)
+        self.current_item_model = None
+        self.current_item_model_name = None
+
+    def apply_badges_for_current(self):
+        """Stamp the current item's attribute badges onto a fresh copy of its
+        model. Plain items (no badges) keep using the shared pristine model."""
+        self._clear_current_item_model()
+
+        items = self.itens_hoje.get('to evaluate', [])
+        if not items:
+            return
+
+        item = items[0]
+        badges = self._badges_for_item(item)
+        if not badges:
+            return
+
+        # Fresh copy so the shared model in self.models stays pristine; the draw
+        # pass reassigns the lighting/shadow shaders to it every frame.
+        model = rl.load_model(OBJECT_MODELS[item.name])
+        for badge_name in badges:
+            attach_badge(model, badge_name, degradation=0.0, target_px=140)
+
+        self.current_item_model = model
+        self.current_item_model_name = item.name
+
+    def inspect_model(self, name):
+        """The model to draw for the inspected item: the badged copy when it
+        belongs to this item, otherwise the shared pristine model."""
+        if self.current_item_model is not None and self.current_item_model_name == name:
+            return self.current_item_model
+        return self.models[name]
 
     def load_fonts(self):
         """Load fonts once into self.fonts. The serif atlas includes the ✔ glyph
@@ -719,6 +824,7 @@ class Game_context:
                         pass
 
     def unload_models(self):
+        self._clear_current_item_model()
         self.mimic_eyes.clear()
         unload_appendage_models()
         for model in self.models.values():

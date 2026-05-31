@@ -131,9 +131,8 @@ def _advance_tutorial(gc: Game_context):
         # Tutorial done — drop straight back into day 1 (no fade); the first
         # object then arcs in.
         gc.tutorial_seen = True
-        # Restart the day intro timer so 'Dia X' shows up NOW
-        gc.day_intro_timer = 2.5
-        gc.day_intro_char_count = 0.0
+        # The 'Dia X' card already played before the tutorial; go straight to
+        # gameplay so it doesn't show a second time.
         gc.current_state = State.INSPECT
 
 
@@ -182,6 +181,7 @@ def update(gc: Game_context, dt: float):
                     if rl.is_key_pressed(rl.KEY_P):
                         gc.transition.start(State.INSPECT)
                     elif rl.is_key_pressed(rl.KEY_M):
+                        gc.reset_game()
                         gc.transition.start(State.MENU)
                 case State.GAME_OVER_FIRED | State.GAME_OVER_WIN | State.GAME_OVER_EXPLODED:
                     from end_states import update_end_state

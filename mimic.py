@@ -21,8 +21,8 @@ APPENDAGE_MODELS = {
 # Target world-space "diameter" each appendage is scaled to (objects are fit to
 # OBJECT_TARGET = 0.26, so these stay small relative to the host object).
 APPENDAGE_SIZE = {
-    "eye":      0.028,
-    "tentacle": 0.046,
+    "eye":      0.018,
+    "tentacle": 0.030,
 }
 
 # Per-model base rotation (Euler X, Y, Z in degrees), applied to the model in
@@ -150,11 +150,6 @@ def _collect_surface_tris(model):
             area = nl * 0.5
             normal = Vector3(nx / nl, ny / nl, nz / nl)
 
-            # Favour upward / outward facing surfaces so the appendage stays on
-            # the visible side of the object.
-            if normal.y < -0.25:
-                continue
-
             all_tris.append({
                 "area": area,
                 "verts": (Vector3(ax, ay, az), Vector3(bx, by, bz), Vector3(cx, cy, cz)),
@@ -183,13 +178,36 @@ def _random_point_in_tri(tri):
     )
 
 
-def _find_appendage_spot(model):
+def _find_appendage_spot(model, view_rot=None, cam_dir=None):
     """Pick one surface point on the object and the outward normal there,
-    returned as (local_position, local_normal). None if the mesh is unusable."""
+    returned as (local_position, local_normal). None if the mesh is unusable.
+
+    When *view_rot* (the object's current world rotation) and *cam_dir* (the
+    world-space object→camera direction) are given, prefer faces that point
+    AWAY from the camera, so the mimic trait hides on the far side and the
+    player has to rotate the object to catch it."""
     tris = _collect_surface_tris(model)
     if not tris:
         return None
-    tri = _weighted_random_tri(tris)
+
+    candidates = tris
+    if view_rot is not None and cam_dir is not None:
+        hidden = []
+        for t in tris:
+            wn = _normalize(_matrix_transform_dir(view_rot, t["normal"]))
+            facing = wn.x * cam_dir.x + wn.y * cam_dir.y + wn.z * cam_dir.z
+            # Pointing away from the camera, and not straight down into the table.
+            if facing < 0.1 and wn.y > -0.6:
+                hidden.append(t)
+        if hidden:
+            candidates = hidden
+    else:
+        # No camera info: fall back to upward/outward faces (visible side).
+        upward = [t for t in tris if t["normal"].y >= -0.25]
+        if upward:
+            candidates = upward
+
+    tri = _weighted_random_tri(candidates)
     return _random_point_in_tri(tri), tri["normal"]
 
 
@@ -227,9 +245,16 @@ class Mimic:
         self._next_tremor = random.uniform(5.0, 20.0)
         self._tremor_duration = 0.0
 
-    def setup(self, model):
+        # Latest object rotation + camera direction, so repositions keep landing
+        # on the far (hidden-from-camera) side of the object.
+        self._view_rot = None
+        self._cam_dir = None
+
+    def setup(self, model, view_rot=None, cam_dir=None):
         _load_appendage_models()
-        spot = _find_appendage_spot(model)
+        self._view_rot = view_rot
+        self._cam_dir = cam_dir
+        spot = _find_appendage_spot(model, view_rot, cam_dir)
         if spot:
             self.position, self.normal = spot
             self._models_found = True
@@ -245,13 +270,18 @@ class Mimic:
     def _reposition(self, model):
         # Surface somewhere new on the SAME object; the kind stays put. Only
         # the location drifts on its own timer while the object is inspected.
-        spot = _find_appendage_spot(model)
+        spot = _find_appendage_spot(model, self._view_rot, self._cam_dir)
         if spot:
             self.position, self.normal = spot
 
-    def update(self, dt, model, anim=None):
+    def update(self, dt, model, anim=None, view_rot=None, cam_dir=None):
         if not self._models_found:
             return
+
+        if view_rot is not None:
+            self._view_rot = view_rot
+        if cam_dir is not None:
+            self._cam_dir = cam_dir
 
         # Occasional nervous shake of the whole object (drives the host's idle
         # animation amplitude, same as the old eyes did).
