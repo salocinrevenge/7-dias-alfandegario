@@ -12,21 +12,21 @@ from animation import add_shake, TweenAnimation
 
 # Lines support a leading <tag> that selects a font size (see quad_text.SIZES).
 _PAPER_LINES = [
-    b"<title>Propriedades",
+    b"<title>              Propriedades dos Itens",
+    b"<small>",
+    b"<h1>[ ] Amaldicoado ?",
+    b"<h1>[ ] Venenoso ?",
+    b"<h1>[ ] Radioativo ?",
+    b"<h1>[ ] Real ?",
+    b"<h1>[ ] Nobre ?",
+    b"<h1>[ ] Importado ?",
+    b"<h1>[ ] Rival ?",
+    b"<small>",
+    b"<body>Maldicoes:",
+    b"<body>Aliados:",
+    b"<body>Rivais:",
     b"",
-    b"<body>[ ] Amaldicoado?",
-    b"<body>[ ] Venenoso?",
-    b"<body>[ ] Radioativo?",
-    b"<body>[ ] Real?",
-    b"<body>[ ] Nobre?",
-    b"<body>[ ] Importado?",
-    b"<body>[ ] Rival?",
-    b"",
-    b"<small>Maldicoes:",
-    b"<small>Aliados:",
-    b"<small>Rivais:",
-    b"",
-    b"<h2>Aceitar    Rejeitar",
+    b"<h2>                                               Aceitar      Rejeitar",
 ]
 
 PAPER_TW, PAPER_TH = 512, 724
@@ -152,12 +152,15 @@ class Game_context:
         self.OBJECT_SIZE  = 0.15
         self.OBJECT_Y     = 0.60
         self.OBJECT_POS   = Vector3(0, self.OBJECT_Y + self.OBJECT_SIZE * 0.5, 0.0)
-        self.OBJECT_SCALE = 1.0   # tune to fit the inspected model on the table
+        # Every inspected model is normalised so its largest dimension equals this,
+        # guaranteeing the object is always framed in front of the camera no matter
+        # what its native real-world size is.
+        self.OBJECT_TARGET = 0.26
 
         self.CAM_POS    = Vector3(0.0, 0.8, 0.7)
         self.CAM_TARGET = Vector3(0, 0.68, 0.0)
 
-        self._OBJECT_RADIUS = self.OBJECT_SIZE * 0.866
+        self._OBJECT_RADIUS = self.OBJECT_TARGET * 0.5
 
         # --- Paper dimensions (3D world units) ---
         self.PAPER_W        = 0.28
@@ -186,6 +189,7 @@ class Game_context:
             pass
         self.sounds = {}
         self.tutorial_played_index = -1
+        self.current_tutorial_sound = None   # sound currently playing in the intro
         # tenta carregar sons correspondentes às estrofes (sounds/tutorial_1.wav...)
         # consulte load_sounds() abaixo (será chamado mais abaixo, após definir os textos)
 
@@ -203,7 +207,7 @@ class Game_context:
         self.painting_enabled = True                           # [K] toggles this
 
         # --- State machine ---
-        self.current_state      = State.INSPECT
+        self.current_state      = State.MENU
         self.prev_inspect_drawn = False
         self.transition         = Transition()
         self.prev_time          = time.time()
@@ -263,6 +267,7 @@ class Game_context:
         self.tutorial_index = 0
         self.tutorial_char_count = 0.0
         self.tutorial_typing_speed = 30.0
+        self.tutorial_seen = False   # the intro tutorial only plays once (day 1)
 
         self.day_intro_timer = 0.0
         self.day_intro_char_count = 0.0
@@ -277,7 +282,12 @@ class Game_context:
             pass
 
     def setup_animations(self):
-        add_shake(self, "relogio", offset=0.001, velocity=0.3)
+        from item import OBJECT_MODELS
+        # Same idle shake for every inspectable object...
+        for name in OBJECT_MODELS:
+            add_shake(self, name, offset=0.001, velocity=0.3)
+        # ...and the paper (only applied while it's held in front of the player).
+        add_shake(self, "paper", offset=0.001, velocity=0.3)
 
     def start_new_day(self):
         self.created_room = True
@@ -289,6 +299,10 @@ class Game_context:
         print(f"Starting day {self.dia_atual}...")
         self.itens_hoje['to evaluate'] = [Item() for _ in range(self.n_itens_dias.get(self.dia_atual, 15))]
         self.itens_hoje['evaluated'] = []
+        # The day's first object stays off-table until it arcs in (after the day
+        # transition, or after the tutorial on day 1).
+        self.gs["object_hidden"]       = True
+        self.gs["pending_first_enter"] = True
 
     def load_fonts(self):
         """Load fonts once into self.fonts. The serif atlas includes the ✔ glyph
@@ -317,9 +331,24 @@ class Game_context:
     def load_models(self):
         self.models = {}
         self.models["table"]   = rl.load_model(b"models/env/chinese_tea_table_2k.gltf")
-        # Inspected-item models, keyed by Item.name ("relogio" / "lista")
-        self.models["relogio"] = rl.load_model(b"models/objects/mantel_clock/mantel_clock_01_1k.gltf")
-        self.models["lista"]   = rl.load_model(b"models/objects/papel/papel.gltf")
+
+        # Inspected-item models, keyed by Item.name. Each is measured at load time so
+        # we can normalise its scale and recentre it on the table; object_fit maps
+        # name -> (uniform scale, bbox-centre Vector3).
+        from item import OBJECT_MODELS
+        self.object_fit = {}
+        for name, path in OBJECT_MODELS.items():
+            model = rl.load_model(path)
+            self.models[name] = model
+            bb = rl.get_model_bounding_box(model)
+            cx = (bb.min.x + bb.max.x) * 0.5
+            cy = (bb.min.y + bb.max.y) * 0.5
+            cz = (bb.min.z + bb.max.z) * 0.5
+            max_dim = max(bb.max.x - bb.min.x,
+                          bb.max.y - bb.min.y,
+                          bb.max.z - bb.min.z) or 1.0
+            self.object_fit[name] = (self.OBJECT_TARGET / max_dim, Vector3(cx, cy, cz))
+
         # The interactive checklist paper (generated plane + baked text texture)
         paper_mesh = rl.gen_mesh_plane(self.PAPER_W, self.PAPER_H, 1, 1)
         self.models["paper"] = rl.load_model_from_mesh(paper_mesh)
@@ -441,6 +470,11 @@ class Game_context:
             "paper_hovered_key": None,  # key of currently hovered button, or None
             # --- Inspected object (arcball rotation) ---
             "object_transform":  rl.matrix_identity(),
+            # Positional offset (world units) driven by the swap animation
+            "object_offset":     Vector3(0.0, 0.0, 0.0),
+            "obj_anim":          None,  # dict while a swipe-out/parabola swap plays
+            "object_hidden":     False, # True while the next object waits off-table
+            "pending_first_enter": False,  # arc the first object in when the day settles
             "dragging":          False,
             "spin_angle":        0.0,
             "spin_axis":         (0.0, 1.0, 0.0),

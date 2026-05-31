@@ -12,11 +12,11 @@ import pyray as rl
 
 # Named font sizes, in texture pixels.
 SIZES = {
-    "title": 46,
-    "h1":    38,
-    "h2":    30,
-    "body":  24,
-    "small": 45,
+    "title": 48,
+    "h1":    34,
+    "h2":    36,
+    "body":  33,
+    "small": 22,
 }
 DEFAULT_TAG = "body"
 LINE_GAP    = 8          # extra vertical pixels between lines
