@@ -152,6 +152,17 @@ def draw_inspect_3d(gc: Game_context):
         rl.Rectangle(0, 0, gc.VIRTUAL_W, gc.VIRTUAL_H),
         Vector2(0, 0), 0.0, rl.Color(245, 185, 185, 255),
     )
+
+    # Dust motes float in screen space behind the table/objects (drawn before
+    # the 3D pass, which renders on top of them).
+    gc.particles.draw(gc.VIRTUAL_W, gc.VIRTUAL_H)
+
+    # Feed the camera position to the Blinn-Phong shader for specular highlights.
+    cam = gc.camera.position
+    rl.set_shader_value(
+        gc.lighting_shader, gc.lighting_viewpos_loc,
+        rl.ffi.new("float[3]", [cam.x, cam.y, cam.z]), rl.SHADER_UNIFORM_VEC3)
+
     rl.begin_mode_3d(gc.camera)
 
     table_offset = get_anim_offset(gc, "table")
@@ -182,6 +193,26 @@ def draw_inspect_3d(gc: Game_context):
             gc.OBJECT_POS.y + obj_offset.y + swap.y,
             gc.OBJECT_POS.z + obj_offset.z + swap.z,
         )
+
+        # --- Planar projected shadow on the table ---------------------------
+        # Flatten the object's world geometry onto the table plane from the
+        # spotlight and paint it a single SOLID colour. Drawing opaque (alpha
+        # 255) is what keeps it clean: the flattened mesh self-overlaps, and a
+        # translucent fill would stack those layers into noisy banding, while a
+        # solid colour just writes the same value every time → a flat silhouette.
+        world_mat  = rl.matrix_multiply(mat, rl.matrix_translate(obj_pos.x, obj_pos.y, obj_pos.z))
+        shadow_mat = rl.matrix_multiply(world_mat, gc.shadow_proj)
+        item_model.transform = shadow_mat
+        for i in range(item_model.materialCount):
+            item_model.materials[i].shader = gc.shadow_shader
+        rl.rl_disable_backface_culling()   # flattened winding can flip
+        rl.draw_model(item_model, Vector3(0, 0, 0), 1.0, rl.Color(28, 22, 34, 255))
+        rl.rl_enable_backface_culling()
+        for i in range(item_model.materialCount):
+            item_model.materials[i].shader = gc.lighting_shader
+
+        # --- The object itself ----------------------------------------------
+        item_model.transform = mat
         rl.draw_model(item_model, obj_pos, 1.0, rl.WHITE)
         item_model.transform = rl.matrix_identity()
 
@@ -299,7 +330,39 @@ def _update_object_transition(gc: Game_context, dt: float):
 # Update
 # ---------------------------------------------------------------------------
 
+def update_magnifier(gc: Game_context, dt: float):
+    """Hold the right mouse button for a magnifying-glass lens around the cursor.
+
+    Computes the lens parameters (centre in texture UV, magnification) that the
+    post-process shader uses to enlarge a circular region under the mouse. The
+    camera is never touched — only screen-space pixels inside the circle.
+    """
+    want = (rl.is_mouse_button_down(rl.MOUSE_BUTTON_RIGHT)
+            and not gc.gs.get("paper_open")
+            and not gc.gs.get("debug"))
+
+    # Ease activation in/out (frame-rate independent).
+    target_t = 1.0 if want else 0.0
+    gc.zoom_t += (target_t - gc.zoom_t) * min(1.0, 10.0 * dt)
+
+    # Cursor → texture UV. The scene texture is blitted vertically flipped
+    # (raylib render-texture convention), and the inversion curse mirrors it,
+    # so map the raw cursor accordingly.
+    dst = get_scaled_rect(gc)
+    m   = rl.get_mouse_position()
+    sx  = (m.x - dst.x) / dst.width  if dst.width  else 0.5
+    sy  = (m.y - dst.y) / dst.height if dst.height else 0.5
+    if getattr(gc, "inversion_curse_active", False):
+        gc.lens_center = (1.0 - sx, sy)
+    else:
+        gc.lens_center = (sx, 1.0 - sy)
+
+    gc.lens_zoom = _lerp(1.0, gc.MAGNIFY, _smooth(gc.zoom_t))
+
+
 def update_inspect(gc: Game_context, dt: float):
+    update_magnifier(gc, dt)
+
     if rl.is_key_pressed(rl.KEY_F1):
         gc.gs["debug"] = not gc.gs["debug"]
         if gc.gs["debug"]:

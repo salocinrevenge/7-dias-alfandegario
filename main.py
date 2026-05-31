@@ -138,6 +138,9 @@ def update(gc: Game_context, dt: float):
 
     general_inputs(gc)
     update_animations(gc, dt)
+    # Dust drifts continuously whenever the 3D scene is on screen.
+    if gc.current_state in (State.INSPECT, State.INTRO, State.PAUSE):
+        gc.particles.update(dt)
     if not gc.transition.active or not gc.transition._fading_out:
             match gc.current_state:
                 case State.MENU:
@@ -366,6 +369,17 @@ def blit_on_screen(gc: Game_context, render_tex=None, src_rect=None, painting_sh
     if getattr(gc, "keyhole_curse_active", False):
         draw_keyhole_effect(gc)
 
+    # ---- Vignette (cool edge darkening, atmosphere) -----------------
+    # Only over the live 3D scene, not the menu's own artwork.
+    if gc.current_state in (State.INSPECT, State.PAUSE, State.INTRO):
+        vig = gc.textures["vignette"]
+        rl.draw_texture_pro(
+            vig,
+            rl.Rectangle(0, 0, float(vig.width), float(vig.height)),
+            dst,
+            Vector2(0, 0), 0.0, rl.WHITE,
+        )
+
     # ---- Overlays (unaffected by the painting shader) ---------------
     match gc.current_state:
         case State.MENU:
@@ -438,6 +452,11 @@ async def main():
     shader_res_loc   = rl.get_shader_location(painting_shader, b"resolution")
     _set_shader_resolution(painting_shader, shader_res_loc, gc.VIRTUAL_W, gc.VIRTUAL_H)
 
+    # Magnifying-glass lens uniforms (driven by RMB in update_magnifier).
+    lens_center_loc = rl.get_shader_location(painting_shader, b"lensCenter")
+    lens_radius_loc = rl.get_shader_location(painting_shader, b"lensRadius")
+    lens_zoom_loc   = rl.get_shader_location(painting_shader, b"lensZoom")
+
     # --- NAUSEA SHADER INITIALIZATION ---
     nausea_shader = rl.load_shader(b"", b"shaders/nausea.fs")
     nausea_time_loc = rl.get_shader_location(nausea_shader, b"seconds")
@@ -466,6 +485,14 @@ async def main():
         
         #  UPDATE
         update(gc, dt)
+
+        # Push magnifier lens state into the painting shader.
+        rl.set_shader_value(painting_shader, lens_center_loc,
+                            rl.ffi.new("float[2]", list(gc.lens_center)), rl.SHADER_UNIFORM_VEC2)
+        rl.set_shader_value(painting_shader, lens_radius_loc,
+                            rl.ffi.new("float *", gc.lens_radius), rl.SHADER_UNIFORM_FLOAT)
+        rl.set_shader_value(painting_shader, lens_zoom_loc,
+                            rl.ffi.new("float *", gc.lens_zoom), rl.SHADER_UNIFORM_FLOAT)
 
         #  DRAW
         draw_on_texture(gc, render_tex)
