@@ -66,6 +66,30 @@ def _tex_px_to_world(gc: Game_context, tx: float, ty: float,
         pos.z,
     )
 
+def get_mouse_position(gc: Game_context) -> Vector2:
+    """Returns the mouse position corrected for the inversion curse."""
+    raw_mouse = rl.get_mouse_position()
+    
+    if getattr(gc, "inversion_curse_active", False):
+        # 1. Grab the current scaled gameplay bounding rectangle (accounts for black bars)
+        dst = get_scaled_rect(gc)
+        
+        # --- VERTICAL FLIP HANDLING (Upside Down) ---
+        # Get mouse distance relative to the TOP of the active gameplay area
+        relative_y = raw_mouse.y - dst.y
+        # Mirror it from the BOTTOM of the active gameplay area
+        corrected_y = (dst.y + dst.height) - relative_y
+        
+        # --- HORIZONTAL MIRROR HANDLING (Left-to-Right) ---
+        # Get mouse distance relative to the LEFT edge of the active gameplay area
+        relative_x = raw_mouse.x - dst.x
+        # Mirror it from the RIGHT edge of the active gameplay area
+        corrected_x = (dst.x + dst.width) - relative_x
+
+        return rl.Vector2(corrected_x, corrected_y)
+        
+    return raw_mouse
+
 
 def _hit_paper_item(gc: Game_context) -> dict | None:
     """
@@ -79,7 +103,7 @@ def _hit_paper_item(gc: Game_context) -> dict | None:
     pos, s    = _paper_world_pos_scale(gc, t_e)
 
     dst  = get_scaled_rect(gc)
-    vpos = _screen_to_virtual(gc, rl.get_mouse_position(), dst)
+    vpos = _screen_to_virtual(gc, get_mouse_position(gc), dst)
     ray  = rl.get_screen_to_world_ray_ex(vpos, gc.camera, gc.VIRTUAL_W, gc.VIRTUAL_H)
 
     if abs(ray.direction.z) < 1e-6:
@@ -260,7 +284,7 @@ def update_inspect(gc: Game_context, dt: float):
 
     # Raycast to open the paper from the table
     dst  = get_scaled_rect(gc)
-    vpos = _screen_to_virtual(gc, rl.get_mouse_position(), dst)
+    vpos = _screen_to_virtual(gc, get_mouse_position(gc), dst)
     ray  = rl.get_screen_to_world_ray_ex(vpos, gc.camera, gc.VIRTUAL_W, gc.VIRTUAL_H)
 
     hw, hh = gc.PAPER_W / 2, gc.PAPER_H / 2

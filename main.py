@@ -13,6 +13,7 @@ from state import State
 from player import Player
 from utils import get_scaled_rect, _screen_to_virtual
 from animation import update_animations
+import curses as curses
 
 # ---------------------------------------------------------------------------
 # DRAW FUNCTIONS
@@ -74,6 +75,15 @@ def general_inputs(gc: Game_context): # Essa funcao mostra q era pra ter uma cla
     # -------------------------------------------------------------- #
     if rl.is_key_pressed(rl.KEY_K):
         gc.painting_enabled = not gc.painting_enabled
+
+    # -------------------------------------------------------------- #
+    #  INVERSION CURSE TOGGLE (DEBUG)
+    # -------------------------------------------------------------- #
+    if rl.is_key_pressed(rl.KEY_I):
+        # Initialize the variable if it doesn't exist yet, then toggle it
+        if not hasattr(gc, "inversion_curse_active"):
+            gc.inversion_curse_active = False
+        gc.inversion_curse_active = not gc.inversion_curse_active
 
 def resize_texture_if_needed(gc: Game_context, render_tex, painting_shader, shader_res_loc, src_rect):
     sw, sh = rl.get_screen_width(), rl.get_screen_height()
@@ -183,12 +193,14 @@ def blit_on_screen(gc: Game_context, render_tex=None, src_rect=None, painting_sh
 
     dst = get_scaled_rect(gc)
 
+    final_src_rect = curses.inversion_curse(gc, src_rect)
+
     if gc.painting_enabled:
         rl.begin_shader_mode(painting_shader)
 
     rl.draw_texture_pro(
         render_tex.texture,
-        src_rect,
+        final_src_rect,
         dst,
         Vector2(0, 0),
         0.0,
