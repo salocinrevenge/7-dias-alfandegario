@@ -205,6 +205,7 @@ class Game_context:
         self.current_state      = State.INSPECT
         self.prev_inspect_drawn = False
         self.transition         = Transition()
+        self.start_time         = time.time()
         self.prev_time          = time.time()
         self.now                = self.prev_time
         self.player             = None

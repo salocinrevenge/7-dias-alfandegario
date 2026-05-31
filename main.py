@@ -85,6 +85,14 @@ def general_inputs(gc: Game_context): # Essa funcao mostra q era pra ter uma cla
             gc.inversion_curse_active = False
         gc.inversion_curse_active = not gc.inversion_curse_active
 
+
+    # -------------------------------------------------------------- #
+    #  NAUSEA CURSE TOGGLE (DEBUG)
+    # -------------------------------------------------------------- #
+    if rl.is_key_pressed(rl.KEY_N):
+        gc.nausea_curse_active = not getattr(gc, "nausea_curse_active", False)
+
+
 def resize_texture_if_needed(gc: Game_context, render_tex, painting_shader, shader_res_loc, src_rect):
     sw, sh = rl.get_screen_width(), rl.get_screen_height()
     if sw > 0 and sh > 0 and (sw != gc.VIRTUAL_W or sh != gc.VIRTUAL_H):
@@ -207,8 +215,10 @@ def blit_on_screen(gc: Game_context, render_tex=None, src_rect=None, painting_sh
         rl.WHITE,
     )
 
+    # --- CLOSE SHADERS ---
     if gc.painting_enabled:
         rl.end_shader_mode()
+
 
     # ---- Overlays (unaffected by the painting shader) ---------------
     match gc.current_state:
@@ -282,6 +292,11 @@ async def main():
     shader_res_loc   = rl.get_shader_location(painting_shader, b"resolution")
     _set_shader_resolution(painting_shader, shader_res_loc, gc.VIRTUAL_W, gc.VIRTUAL_H)
 
+    # --- NAUSEA SHADER INITIALIZATION ---
+    nausea_shader = rl.load_shader(b"", b"shaders/nausea.fs")
+    nausea_time_loc = rl.get_shader_location(nausea_shader, b"seconds")
+    gc.nausea_curse_active = False # Start deactivated
+
     # debug
     gc.make_scene_state()
 
@@ -291,6 +306,11 @@ async def main():
         dt  = gc.now - gc.prev_time
         gc.prev_time = gc.now
 
+        current_time = gc.now - gc.start_time 
+        # --- SEND TIME TO NAUSEA SHADER ---
+        time_ptr = rl.ffi.new("float *", current_time)
+        rl.set_shader_value(nausea_shader, nausea_time_loc, time_ptr, rl.SHADER_UNIFORM_FLOAT)
+
         # fullscreen resize screen
         render_tex, src_rect = resize_texture_if_needed(gc, render_tex, painting_shader, shader_res_loc, src_rect)
         
@@ -299,9 +319,12 @@ async def main():
 
         #  DRAW
         draw_on_texture(gc, render_tex)
+        is_nauseous = getattr(gc, "nausea_curse_active", False)
+        active_shader = nausea_shader if is_nauseous else painting_shader
+
 
         #  BLIT RENDER TEXTURE → SCREEN
-        blit_on_screen(gc, render_tex, src_rect, painting_shader)
+        blit_on_screen(gc, render_tex, src_rect, active_shader)
         
 
         await asyncio.sleep(0)
