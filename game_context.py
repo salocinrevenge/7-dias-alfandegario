@@ -102,12 +102,26 @@ class Game_context:
         self.count_until_end_day = self.reset_count_until_end_day
         self.created_room = False
 
+        self.tutorial_texts = [
+            "Bem vindo ao seu primeiro dia como alfandegário.",
+            "Você deve avaliar os itens que chegarem, catalogando as\nsuas características no papel e aceitando eles.",
+            "Caso suspeite de ser algum mimico, ser envenenado,\nradioativo, amaldiçoado ou importado de uma nação inimiga,\nvocê deve rejeitá-los.",
+            "Caso apareça o livro nuclear, o rejeite, ele pode destruir todos nós.",
+            "Você tem 7 dias de trabalho. Caso erre demais, poderá ter\nque trabalhar novamente segundo suas cartas de reclamações.",
+            "Se errar demais, será demitido. Bom trabalho!"
+        ]
+        self.tutorial_index = 0
+        self.tutorial_char_count = 0.0
+        self.tutorial_typing_speed = 30.0
+
+        self.day_intro_timer = 0.0
 
     def start_new_day(self):
         self.created_room = True
         self.make_scene_state()
         self.transition.start(State.INSPECT)
         self.dia_atual += 1
+        self.day_intro_timer = 2.0
         print(f"Starting day {self.dia_atual}...")
         self.itens_hoje['to evaluate'] = [Item() for _ in range(self.n_itens_dias.get(self.dia_atual, 15))]
         self.itens_hoje['evaluated'] = []

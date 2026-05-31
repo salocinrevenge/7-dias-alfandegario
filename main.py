@@ -101,6 +101,10 @@ def update(gc: Game_context, dt: float):
                     # Se ainda n tem gc.gs entao chama o make_scene_state
                     if not gc.created_room:
                         gc.start_new_day()
+                    
+                    if gc.day_intro_timer > 0:
+                        gc.day_intro_timer -= dt
+
                     if rl.is_key_pressed(rl.KEY_P):
                         if gc.gs.get("debug"):
                             gc.gs["debug"] = False
@@ -118,8 +122,19 @@ def update(gc: Game_context, dt: float):
                     # Leia qualquer input do mouse ou teclado para pular a introdução
                     if not hasattr(gc, "gs"):
                         gc.make_scene_state()
+                    
+                    gc.tutorial_char_count += gc.tutorial_typing_speed * dt
+                    
                     if rl.is_key_pressed(rl.KEY_ENTER) or rl.is_mouse_button_pressed(rl.MOUSE_BUTTON_LEFT):
-                        gc.transition.start(State.INSPECT)
+                        text_len = len(gc.tutorial_texts[gc.tutorial_index])
+                        if gc.tutorial_char_count < text_len:
+                            gc.tutorial_char_count = text_len
+                        else:
+                            gc.tutorial_index += 1
+                            gc.tutorial_char_count = 0.0
+                            if gc.tutorial_index >= len(gc.tutorial_texts):
+                                gc.transition.start(State.INSPECT)
+
 
 def draw_on_texture(gc: Game_context, render_tex):
     rl.begin_texture_mode(render_tex)
@@ -173,6 +188,11 @@ def blit_on_screen(gc: Game_context, render_tex=None, src_rect=None, painting_sh
             
         case State.INSPECT:
             gc.player.draw_hud(dst)
+            if gc.day_intro_timer > 0:
+                day_text = f"Dia {gc.dia_atual}".encode('utf-8')
+                text_width = rl.measure_text_ex(gc.textures["tropiland_font"], day_text, 100, 1).x
+                sw, sh = rl.get_screen_width(), rl.get_screen_height()
+                rl.draw_text_ex(gc.textures["tropiland_font"], day_text, rl.Vector2((sw - text_width) / 2, sh / 2 - 50), 100, 1, rl.WHITE)
 
         case State.PAUSE:
             draw_pause(gc.textures["tropiland_font"])

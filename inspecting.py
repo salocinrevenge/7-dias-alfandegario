@@ -60,8 +60,13 @@ def update_inspect(gc: Game_context, dt: float):
         gc.start_new_day()
 
 def draw_tutorial_talk(gc: Game_context):
+    if gc.tutorial_index >= len(gc.tutorial_texts):
+        return
+    text = gc.tutorial_texts[gc.tutorial_index]
+    chars_to_draw = int(gc.tutorial_char_count)
+    if chars_to_draw > len(text):
+        chars_to_draw = len(text)
+    
+    current_text = text[:chars_to_draw]
     # Desenhe o balão de fala do tutorial
-    rl.draw_text("Bem vindo ao seu primeiro dia como alfandegário. Você deve avaliar os itens que chegarem catalogando as suas características no papel e " \
-    "aceitando eles. Caso suspeite de ser algum mimico, ser evenenado, radioativo, amaldiçoado ou importado de uma nação inimiga, você deve rejeitá-los. " \
-    "Caso apareça o livro nuclear, o rejeite, ele pode destruir todos nós." \
-    "Você tem 7 dias de trabalho. Caso erre demais, poderá ter que trabalhar novamente segundo suas cartas de reclamacões. Se errar demais, será demitido. Bom trabalho!", 60, gc.VIRTUAL_H - 130, 20, rl.WHITE)
+    rl.draw_text(current_text.encode('utf-8'), 60, gc.VIRTUAL_H - 130, 20, rl.WHITE)
