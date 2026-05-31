@@ -1,3 +1,4 @@
+import sys
 import pyray as rl
 from pyray import Vector3, Vector2
 import math
@@ -50,6 +51,7 @@ def _set_shader_resolution(shader, loc: int, w: float, h: float):
 
 
 
+
 def general_inputs(gc: Game_context): # Essa funcao mostra q era pra ter uma classe aqui, mas n to botando pq lucas pediu pra n usar
     # -------------------------------------------------------------- #
     #  FULLSCREEN TOGGLE                                               #
@@ -94,7 +96,6 @@ def update(gc: Game_context, dt: float):
     if not gc.transition.active or not gc.transition._fading_out:
             if gc.current_state == State.MENU:
                 if rl.is_key_pressed(rl.KEY_ENTER):
-                    gc.make_scene_state()
                     gc.transition.start(State.INSPECT)
 
             elif gc.current_state == State.INSPECT:
@@ -183,9 +184,14 @@ def blit_on_screen(gc: Game_context, render_tex=None, src_rect=None, painting_sh
 async def main():
 
     rl.set_config_flags(rl.FLAG_WINDOW_RESIZABLE)
-    rl.init_window(1000, 700, b"The Enigma")
+    rl.init_window(1480, 800, b"The Enigma")
     rl.set_target_fps(60)
     rl.enable_cursor()
+
+    if sys.platform != "emscripten":
+        monitor = rl.get_current_monitor()
+        rl.set_window_size(rl.get_monitor_width(monitor), rl.get_monitor_height(monitor))
+        rl.toggle_fullscreen()
 
     gc = Game_context()
     gc.player = Player(gc)
@@ -198,11 +204,13 @@ async def main():
 
     # --- Painting shader (Kuwahara) ---
     # WebGL (pygbag/Emscripten) needs GLSL ES 1.0; desktop uses GLSL 3.3.
-    _fs = b"textures/shaders/painting_web.fs" if gc.IS_WEB else b"textures/shaders/painting.fs"
+    _fs = b"shaders/painting_web.fs" if gc.IS_WEB else b"shaders/painting.fs"
     painting_shader  = rl.load_shader(b"", _fs)
     shader_res_loc   = rl.get_shader_location(painting_shader, b"resolution")
     _set_shader_resolution(painting_shader, shader_res_loc, gc.VIRTUAL_W, gc.VIRTUAL_H)
 
+    # debug
+    gc.make_scene_state()
 
     while not rl.window_should_close():
         # dt update
