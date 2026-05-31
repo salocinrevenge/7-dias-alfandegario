@@ -172,6 +172,9 @@ def update(gc: Game_context, dt: float):
                         gc.transition.start(State.INSPECT)
                     elif rl.is_key_pressed(rl.KEY_M):
                         gc.transition.start(State.MENU)
+                case State.GAME_OVER_FIRED | State.GAME_OVER_WIN | State.GAME_OVER_EXPLODED:
+                    from end_states import update_end_state
+                    update_end_state(gc, dt)
                 case State.INTRO:
                     # Leia qualquer input do mouse ou teclado para pular a introdução
                     if not hasattr(gc, "gs"):
@@ -241,6 +244,10 @@ def draw_on_texture(gc: Game_context, render_tex):
         case State.INTRO:
             draw_inspect_3d(gc)
             draw_tutorial_talk(gc)
+
+        case State.GAME_OVER_FIRED | State.GAME_OVER_WIN | State.GAME_OVER_EXPLODED:
+            from end_states import draw_end_state
+            draw_end_state(gc)
 
     rl.end_texture_mode()
 
@@ -465,6 +472,9 @@ async def main():
         # fullscreen resize screen
         render_tex, src_rect = resize_texture_if_needed(gc, render_tex, painting_shader, shader_res_loc, src_rect)
         
+        # MUSIC
+        gc.update_music()
+
         #  UPDATE
         update(gc, dt)
 

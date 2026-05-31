@@ -300,15 +300,18 @@ class Game_context:
     def start_new_day(self):
         self.created_room = True
         self.make_scene_state()
-        self.transition.start(State.INSPECT)
-        if self.penalidade  >= self.penalidade_to_day:
+        if self.penalidade >= self.penalidade_to_day:
             self.dia_atual -= 1
             self.penalidade = 0
         if self.n_erros >= self.erros_to_fire:
-            raise Exception("Muitos erros! Demitido, fim de jogo.")
+            self.transition.start(State.GAME_OVER_FIRED)
+            return
         self.dia_atual += 1
         if self.dia_atual > 7:
-            raise Exception("Parabéns, você completou o jogo!")
+            self.transition.start(State.GAME_OVER_WIN)
+            return
+            
+        self.transition.start(State.INSPECT)
         self.day_intro_timer = 2.5
         self.day_intro_char_count = 0.0
         print(f"Starting day {self.dia_atual}...")
@@ -370,6 +373,24 @@ class Game_context:
         self.models["paper"].materials[0].maps[rl.MATERIAL_MAP_DIFFUSE].texture = self.textures["paper"]
 
     def load_sounds(self):
+        self.music = {}
+        # Load background music tracks
+        music_files = {
+            "menu": b"sounds/menu-music.mp3",
+            "gameplay": b"sounds/gameplay-music.mp3",
+            "derrota": b"sounds/derrota-music.mp3",
+            "vitoria": b"sounds/vitoria-music.mp3"
+        }
+        for name, path in music_files.items():
+            import os
+            if os.path.exists(path.decode('utf-8')):
+                self.music[name] = rl.load_music_stream(path)
+            else:
+                self.music[name] = None
+        
+        self.current_music_key = None
+        self.current_music_stream = None
+
         # tenta carregar um som para cada tutorial/estrofe.
         import os
         candidates = []
@@ -436,6 +457,34 @@ class Game_context:
         self.textures["paper"] = new_tex
         self.models["paper"].materials[0].maps[rl.MATERIAL_MAP_DIFFUSE].texture = new_tex
 
+    def update_music(self):
+        # Determine the appropriate music based on current state
+        desired_music_key = None
+        if self.current_state == State.MENU:
+            desired_music_key = "menu"
+        elif self.current_state in (State.INSPECT, State.PAUSE, State.INTRO):
+            desired_music_key = "gameplay"
+        elif self.current_state in (State.GAME_OVER_FIRED, State.GAME_OVER_EXPLODED):
+            desired_music_key = "derrota"
+        elif self.current_state == State.GAME_OVER_WIN:
+            desired_music_key = "vitoria"
+
+        # Switch music if needed
+        if desired_music_key != self.current_music_key:
+            if self.current_music_stream is not None:
+                rl.stop_music_stream(self.current_music_stream)
+            
+            self.current_music_key = desired_music_key
+            if desired_music_key and self.music.get(desired_music_key):
+                self.current_music_stream = self.music[desired_music_key]
+                rl.play_music_stream(self.current_music_stream)
+            else:
+                self.current_music_stream = None
+
+        # Update the currently playing music
+        if self.current_music_stream is not None:
+            rl.update_music_stream(self.current_music_stream)
+
     def unload_fonts(self):
         for font in self.fonts.values():
             rl.unload_font(font)
@@ -456,6 +505,14 @@ class Game_context:
                 if s is not None:
                     try:
                         rl.unload_sound(s)
+                    except Exception:
+                        pass
+                        
+        if hasattr(self, 'music'):
+            for m in self.music.values():
+                if m is not None:
+                    try:
+                        rl.unload_music_stream(m)
                     except Exception:
                         pass
 
@@ -516,6 +573,6 @@ class Game_context:
             if self.itens_hoje['to evaluate'][0].atributos["MIMICO"]:
                 penalidade += self.error_costs["MIMICO"] # Passou mimico
             if self.itens_hoje['to evaluate'][0].atributos["MORTE"]:
-                raise Exception("O item é um mimico! Fim de jogo.")
+                self.transition.start(State.GAME_OVER_EXPLODED)
         self.n_erros = n_erros
         self.penalidade = penalidade

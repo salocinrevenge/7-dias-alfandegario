@@ -415,6 +415,11 @@ def update_inspect(gc: Game_context, dt: float):
     if col.hit and rl.is_mouse_button_pressed(rl.MOUSE_BUTTON_LEFT):
         gc.gs["paper_open"] = True
 
+    # Apertar I:
+    if rl.is_key_pressed(rl.KEY_L):
+        gc.start_new_day()
+    
+
 
 def draw_tutorial_talk(gc: Game_context):
     if gc.tutorial_index >= len(gc.tutorial_texts):
