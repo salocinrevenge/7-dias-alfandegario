@@ -217,6 +217,7 @@ class Game_context:
         self.n_erros = 0
         self.penalidade = 0
         self.penalidade_to_day = 5
+        self.erros_to_fire = 50
         self.dia_atual = 0
         self.n_itens_dias = {
             1: 3,
@@ -297,6 +298,11 @@ class Game_context:
         self.created_room = True
         self.make_scene_state()
         self.transition.start(State.INSPECT)
+        if self.penalidade_to_day >= self.penalidade:
+            self.dia_atual -= 1
+            self.penalidade -= self.penalidade_to_day
+        if self.n_erros >= self.erros_to_fire:
+            raise Exception("Muitos erros! Demitido, fim de jogo.")
         self.dia_atual += 1
         self.day_intro_timer = 2.5
         self.day_intro_char_count = 0.0
