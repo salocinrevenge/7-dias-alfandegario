@@ -33,6 +33,6 @@ class Item:
             "NOBRE": False if random.random() < 0.4 else True,
             "ALIADOS": False if random.random() < 0.5 else True,
             "RIVAIS": False if random.random() < 0.5 else True,
-            "MIMICO": False if random.random() < 0.92 else True,
+            "MIMICO": True,
             "MORTE": False if random.random() < 0.99 else True,
         }

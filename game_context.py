@@ -263,6 +263,7 @@ class Game_context:
             "RIVAIS": 2,
             "REJECT": 1,
             "MIMICO": 7,
+            "MORTE": 10,
         }
         self.positive_rejects = ["REAL", "NOBRE", "ALIADOS"]
         self.negative_acept = ["AMALDICOADO", "VENENOSO", "RADIOATIVO", "RIVAIS", "MIMICO"]
@@ -275,6 +276,8 @@ class Game_context:
             "NOBRE": False,
             "ALIADOS": False,
             "RIVAIS": False,
+            "MIMICO": False,
+            "MORTE": False,
         }
 
         self.reset_count_until_end_day = 100
