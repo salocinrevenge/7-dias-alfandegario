@@ -450,6 +450,7 @@ def blit_on_screen(gc: Game_context, render_tex=None, src_rect=None, screen_shad
 async def main():
 
     rl.set_config_flags(rl.FLAG_WINDOW_RESIZABLE)
+    rl.set_trace_log_level(rl.LOG_NONE)
     rl.init_window(1480, 800, b"The Enigma")
     rl.set_target_fps(60)
     rl.enable_cursor()

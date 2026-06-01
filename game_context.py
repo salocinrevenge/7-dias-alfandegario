@@ -504,9 +504,7 @@ class Game_context:
     # Badge images (under textures/) keyed by the Item attribute that triggers
     # them. Aliado/Inimigo have interchangeable variants; the curses are stamped
     # when the item is AMALDICOADO (a random one) and/or VENENOSO (venenoso).
-    _ALIADO_VARIANTS = ("Aliado1", "Aliado2", "Aliado3")
-    _INIMIGO_VARIANTS = ("Inimigo1", "Inimigo2", "Inimigo3")
-    _CURSE_VARIANTS = ("nausea", "chave", "inverter")
+    
 
     def _badges_for_item(self, item) -> list[str]:
         """The badge image names to stamp for *item*, per its attributes."""
@@ -517,11 +515,11 @@ class Game_context:
         if a.get("NOBRE"):
             badges.append("badges/shield")
         if a.get("ALIADOS"):
-            badges.append(random.choice(self._ALIADO_VARIANTS))
+            badges.append(item.nation)
         if a.get("RIVAIS"):
-            badges.append(random.choice(self._INIMIGO_VARIANTS))
+            badges.append(item.nation)
         if a.get("AMALDICOADO"):
-            badges.append(random.choice(self._CURSE_VARIANTS))
+            badges.append(item.curse)
         # Avoid stamping the same curse twice (e.g. VENENOSO + AMALDICOADO→venenoso).
         return list(dict.fromkeys(badges))
 
@@ -956,6 +954,8 @@ class Game_context:
             self.hunger = 0
 
         self.apply_curses(item)
+        if item.atributos.get("VENENOSO") or item.atributos.get("RADIOATIVO"):
+            self.nausea_curse_active = True
         tags = []
         if item.atributos.get("VENENOSO"):
             tags.append("envenenado")
@@ -992,11 +992,11 @@ class Game_context:
     def apply_curses(self, item):
         """Activate the visual/audio curse effects carried by a cursed item.
         Mirrors the curse mapping used when eating tainted food."""
-        if item.atributos.get("VENENOSO"):
+        if item.curse == "nausea":
             self.nausea_curse_active = True
-        if item.atributos.get("AMALDICOADO"):
+        if item.curse == "inverter":
             self.inversion_curse_active = True
-        if item.atributos.get("RADIOATIVO"):
+        if item.curse == "chave":
             self.keyhole_curse_active = True
 
     def compute_negatives(self, acao: str) -> list[str]:
