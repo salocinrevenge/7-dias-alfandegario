@@ -506,7 +506,7 @@ class Game_context:
     # when the item is AMALDICOADO (a random one) and/or VENENOSO (venenoso).
     _ALIADO_VARIANTS = ("Aliado1", "Aliado2", "Aliado3")
     _INIMIGO_VARIANTS = ("Inimigo1", "Inimigo2", "Inimigo3")
-    _CURSE_VARIANTS = ("venenoso", "chave", "inverter")
+    _CURSE_VARIANTS = ("nausea", "chave", "inverter")
 
     def _badges_for_item(self, item) -> list[str]:
         """The badge image names to stamp for *item*, per its attributes."""
@@ -520,8 +520,6 @@ class Game_context:
             badges.append(random.choice(self._ALIADO_VARIANTS))
         if a.get("RIVAIS"):
             badges.append(random.choice(self._INIMIGO_VARIANTS))
-        if a.get("VENENOSO"):
-            badges.append("venenoso")
         if a.get("AMALDICOADO"):
             badges.append(random.choice(self._CURSE_VARIANTS))
         # Avoid stamping the same curse twice (e.g. VENENOSO + AMALDICOADO→venenoso).

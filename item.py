@@ -54,10 +54,10 @@ class Item:
     def _init_normal_attrs(self):
         aliados, rivais = self._roll_faction(0.30, 0.30)
         self.atributos = {
-            "AMALDICOADO": random.random() < 0.15,
+            "AMALDICOADO": random.random() < 1.15,
             "VENENOSO":    random.random() < 0.20,
             "RADIOATIVO":  random.random() < 0.10,
-            "REAL":        random.random() >= 0.006,
+            "REAL":        random.random() < 0.06,
             "NOBRE":       random.random() < 0.40,
             "ALIADOS":     aliados,
             "RIVAIS":      rivais,
@@ -71,8 +71,8 @@ class Item:
             "AMALDICOADO": random.random() < 0.20,
             "VENENOSO":    random.random() < 0.62,
             "RADIOATIVO":  random.random() < 0.34,
-            "REAL":        random.random() < 0.40,
-            "NOBRE":       random.random() < 0.70,
+            "REAL":        random.random() < 0.00,
+            "NOBRE":       random.random() < 0.00,
             "ALIADOS":     aliados,
             "RIVAIS":      rivais,
             "MIMICO":      random.random() < 0.04,

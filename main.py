@@ -231,7 +231,6 @@ def draw_on_texture(gc: Game_context, render_tex):
         case State.PAUSE:
             # Keep the 3D scene visible under the pause overlay
             if gc.prev_inspect_drawn:
-                print("Drawing paused scene into texture...")
                 draw_inspect_3d(gc)
             else:
                 rl.clear_background(rl.BLACK)

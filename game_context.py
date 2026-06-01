@@ -506,7 +506,7 @@ class Game_context:
     # when the item is AMALDICOADO (a random one) and/or VENENOSO (venenoso).
     _ALIADO_VARIANTS = ("Aliado1", "Aliado2", "Aliado3")
     _INIMIGO_VARIANTS = ("Inimigo1", "Inimigo2", "Inimigo3")
-    _CURSE_VARIANTS = ("venenoso", "chave", "inverter")
+    _CURSE_VARIANTS = ("nausea", "chave", "inverter")
 
     def _badges_for_item(self, item) -> list[str]:
         """The badge image names to stamp for *item*, per its attributes."""
@@ -520,8 +520,6 @@ class Game_context:
             badges.append(random.choice(self._ALIADO_VARIANTS))
         if a.get("RIVAIS"):
             badges.append(random.choice(self._INIMIGO_VARIANTS))
-        if a.get("VENENOSO"):
-            badges.append("venenoso")
         if a.get("AMALDICOADO"):
             badges.append(random.choice(self._CURSE_VARIANTS))
         # Avoid stamping the same curse twice (e.g. VENENOSO + AMALDICOADO→venenoso).
@@ -985,10 +983,11 @@ class Game_context:
         self.hunger -= self.hunger_decay * dt
         if self.hunger <= 0:
             self.hunger = 0
-            self.hunger_starve_penalty += dt * 1.2
-            if self.hunger_starve_penalty >= 1.0:
-                self.hunger_starve_penalty -= 1.0
-                self.n_erros += 1
+            # Penalidade em erros por inanição desativada conforme solicitado
+            # self.hunger_starve_penalty += dt * 1.2
+            # if self.hunger_starve_penalty >= 1.0:
+            #     self.hunger_starve_penalty -= 1.0
+            #     self.n_erros += 1
 
     def apply_curses(self, item):
         """Activate the visual/audio curse effects carried by a cursed item.
@@ -1014,7 +1013,8 @@ class Game_context:
         # player actually judged the item.
         for atributo, valor in self.properties_on_list.items():
             if valor != item.atributos[atributo]:
-                n_erros += 1
+                print(f"Checklist mismatch on {atributo}: player said {valor}, but item has {item.atributos[atributo]}")
+                penalidade += 1
 
         # Penalidade is judged on the VERDICT itself: you only pay when the
         # accept/reject call was wrong for a property the item really carries.
@@ -1022,9 +1022,9 @@ class Game_context:
             if not present:
                 continue
             if acao == "rejeitar" and atributo in self.positive_rejects:
-                penalidade += self.error_costs[atributo]  # rejected something good
+                n_erros += self.error_costs[atributo]  # rejected something good
             if acao == "aceitar" and atributo in self.negative_acept:
-                penalidade += self.error_costs[atributo]  # accepted something bad
+                n_erros += self.error_costs[atributo]  # accepted something bad
 
         if acao == "aceitar":
             # Accepting a cursed item inflicts its curse on the player. (MIMICO's
