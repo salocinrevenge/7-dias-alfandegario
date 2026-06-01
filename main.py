@@ -6,14 +6,14 @@ import asyncio
 import time
 
 
-from inspecting import draw_inspect_3d, update_inspect, draw_tutorial_talk, get_mouse_position
-from menu import draw_menu, draw_menu_bg_into_texture
-from game_context import Game_context
-from state import State
-from player import Player
-from utils import get_scaled_rect, _screen_to_virtual
-from animation import update_animations
-import curses as curses
+from src.inspecting import draw_inspect_3d, update_inspect, draw_tutorial_talk, get_mouse_position
+from src.menu import draw_menu, draw_menu_bg_into_texture
+from src.game_context import Game_context
+from src.state import State
+from src.player import Player
+from src.utils import get_scaled_rect, _screen_to_virtual
+from src.animation import update_animations
+import src.curses as curses
 
 # ---------------------------------------------------------------------------
 # DRAW FUNCTIONS
@@ -162,7 +162,7 @@ def update(gc: Game_context, dt: float):
                         gc.reset_effects()
                         gc.transition.start(State.MENU)
                 case State.GAME_OVER_FIRED | State.GAME_OVER_WIN | State.GAME_OVER_EXPLODED:
-                    from end_states import update_end_state
+                    from src.end_states import update_end_state
                     update_end_state(gc, dt)
                 case State.INTRO:
                     # Leia qualquer input do mouse ou teclado para pular a introdução
@@ -240,7 +240,7 @@ def draw_on_texture(gc: Game_context, render_tex):
             draw_tutorial_talk(gc)
 
         case State.GAME_OVER_FIRED | State.GAME_OVER_WIN | State.GAME_OVER_EXPLODED:
-            from end_states import draw_end_state
+            from src.end_states import draw_end_state
             draw_end_state(gc)
 
     # Composite the keyhole mask over the finished scene (multiply blend).

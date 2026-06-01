@@ -2,3 +2,27 @@
 build/
 __pycache__
 flake.*
+
+# Editor / OS temp files
+*~
+.DS_Store
+Thumbs.db
+
+# Source art files (not needed at runtime)
+*.kra
+*.kra~
+*.blend
+*.blend1
+*-autosave.*
+*.dae
+*.obj
+*.mtl
+
+# Downloaded model archives
+models/**/*.zip
+
+# Old version backups
+*-old.*
+
+# Link shortcuts
+*.url
