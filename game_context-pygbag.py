@@ -305,6 +305,13 @@ class Game_context:
         self.items_correct_today = 0
         self.foods_eaten_today = 0
 
+        # Snapshot of the day that just ended, shown on the next "Dia X" card.
+        self.last_day_items_judged  = 0
+        self.last_day_items_correct = 0
+        self.last_day_errors        = 0
+        self.last_day_foods_eaten   = 0
+        self.last_day_hunger_pct    = 0
+
         # Cumulative stats (never reset, shown in end-game screen)
         self.total_items_judged = 0
         self.total_correct = 0
@@ -437,6 +444,15 @@ class Game_context:
         self.nausea_curse_active = False
         self.inversion_curse_active = False
         self.keyhole_curse_active = False
+        # Snapshot the finished day's stats BEFORE zeroing them, so the next
+        # morning's "Dia X" card can show the previous day's acertos/erros (the
+        # live counters are reset below for the new day).
+        self.last_day_items_judged  = self.items_judged_today
+        self.last_day_items_correct = self.items_correct_today
+        self.last_day_errors        = self.errors_today
+        self.last_day_foods_eaten   = self.foods_eaten_today
+        self.last_day_hunger_pct    = (int(self.hunger / self.hunger_max * 100)
+                                       if self.hunger_max > 0 else 0)
         self.errors_today = 0
         self.items_judged_today = 0
         self.items_correct_today = 0
@@ -496,6 +512,10 @@ class Game_context:
         """The badge image names to stamp for *item*, per its attributes."""
         a = item.atributos
         badges: list[str] = []
+        if a.get("REAL"):
+            badges.append("badges/crown")
+        if a.get("NOBRE"):
+            badges.append("badges/shield")
         if a.get("ALIADOS"):
             badges.append(random.choice(self._ALIADO_VARIANTS))
         if a.get("RIVAIS"):

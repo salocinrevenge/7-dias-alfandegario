@@ -68,10 +68,10 @@ class Item:
     def _init_food_attrs(self):
         aliados, rivais = self._roll_faction(0.15, 0.15)
         self.atributos = {
-            "AMALDICOADO": random.random() < 0.08,
-            "VENENOSO":    random.random() < 0.12,
-            "RADIOATIVO":  random.random() < 0.04,
-            "REAL":        True,
+            "AMALDICOADO": random.random() < 0.20,
+            "VENENOSO":    random.random() < 0.62,
+            "RADIOATIVO":  random.random() < 0.34,
+            "REAL":        random.random() < 0.40,
             "NOBRE":       random.random() < 0.70,
             "ALIADOS":     aliados,
             "RIVAIS":      rivais,
