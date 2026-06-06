@@ -1021,13 +1021,18 @@ class Game_context:
 
         # Penalidade is judged on the VERDICT itself: you only pay when the
         # accept/reject call was wrong for a property the item really carries.
+        must_reject = 0
+        must_accept = 0
         for atributo, present in item.atributos.items():
             if not present:
                 continue
-            if acao == "rejeitar" and atributo in self.positive_rejects:
-                n_erros += self.error_costs[atributo]  # rejected something good
-            if acao == "aceitar" and atributo in self.negative_acept:
-                n_erros += self.error_costs[atributo]  # accepted something bad
+            if atributo in self.positive_rejects:
+                must_reject += 1
+            if atributo in self.negative_acept:
+                must_accept += 1
+        acao_esperada = "rejeitar" if must_reject > must_accept else "aceitar"
+        if acao != acao_esperada:
+             n_erros += 1
 
         if acao == "aceitar":
             # Accepting a cursed item inflicts its curse on the player. (MIMICO's
