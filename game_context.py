@@ -547,6 +547,7 @@ class Game_context:
         # pass reassigns the lighting/shadow shaders to it every frame.
         model = rl.load_model(OBJECT_MODELS[item.name])
         for badge_name in badges:
+            # for i in range(2):
             attach_badge(model, badge_name, degradation=0.0, target_px=140)
 
         self.current_item_model = model
@@ -1012,6 +1013,8 @@ class Game_context:
         # ~99% of items) would force a redo every day no matter how well the
         # player actually judged the item.
         for atributo, valor in self.properties_on_list.items():
+            if atributo in ("MIMICO", "MORTE"): # Não deve ser considerado como atributo valido
+                continue
             if valor != item.atributos[atributo]:
                 print(f"Checklist mismatch on {atributo}: player said {valor}, but item has {item.atributos[atributo]}")
                 penalidade += 1

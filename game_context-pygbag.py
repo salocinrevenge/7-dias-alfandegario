@@ -546,6 +546,9 @@ class Game_context:
         # pass reassigns the lighting/shadow shaders to it every frame.
         model = rl.load_model(OBJECT_MODELS[item.name])
         for badge_name in badges:
+            print(f"Applying badge {badge_name} to {item.name}...")
+            if badge_name in ("inverter.png", "venenoso.png", "radioativo.png"):
+                attach_badge(model, badge_name, degradation=0.0, target_px=140)
             attach_badge(model, badge_name, degradation=0.0, target_px=140)
 
         self.current_item_model = model
