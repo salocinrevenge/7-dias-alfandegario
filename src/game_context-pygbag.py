@@ -744,20 +744,13 @@ class Game_context:
         # Web (pygbag) uses the smaller, browser-friendly .ogg encodes; desktop
         # uses the full-quality .mp3 tracks. raylib's WebGL/miniaudio build does
         # not reliably decode mp3, and the mp3s would bloat the download.
-        if self.IS_WEB:
-            music_files = {
-                "menu":     b"sounds/menu-music-pygbag.ogg",
-                "gameplay": b"sounds/gameplay-music-pygbag.ogg",
-                "derrota":  b"sounds/derrota-music-pygbag.ogg",
-                "vitoria":  b"sounds/vitoria-music-pygbag.ogg",
-            }
-        else:
-            music_files = {
-                "menu":     b"sounds/menu-music.ogg",
-                "gameplay": b"sounds/gameplay-music.ogg",
-                "derrota":  b"sounds/derrota-music.ogg",
-                "vitoria":  b"sounds/vitoria-music.ogg",
-            }
+
+        music_files = {
+            "menu":     b"sounds/menu-music.ogg",
+            "gameplay": b"sounds/gameplay-music.ogg",
+            "derrota":  b"sounds/derrota-music.ogg",
+            "vitoria":  b"sounds/vitoria-music.ogg",
+        }
         for name, path in music_files.items():
             import os
             if os.path.exists(path.decode('utf-8')):
@@ -1017,20 +1010,26 @@ class Game_context:
                 continue
             if valor != item.atributos[atributo]:
                 print(f"Checklist mismatch on {atributo}: player said {valor}, but item has {item.atributos[atributo]}")
-                penalidade += 1
+                penalidade += self.error_costs.get(atributo, 1)
 
         # Penalidade is judged on the VERDICT itself: you only pay when the
         # accept/reject call was wrong for a property the item really carries.
         must_reject = 0
         must_accept = 0
+        print("Judging item with attributes:", end=" ")
         for atributo, present in item.atributos.items():
             if not present:
                 continue
-            if atributo in self.positive_rejects:
-                must_reject += 1
             if atributo in self.negative_acept:
+                print(f"{atributo} (reject)", end=" ")
+                must_reject += 1
+            if atributo in self.positive_rejects:
+                print(f"{atributo} (accept)", end=" ")
                 must_accept += 1
         acao_esperada = "rejeitar" if must_reject > must_accept else "aceitar"
+        print(f"=> expected action: {acao_esperada}, player action: {acao}")
+        if acao == "comer":# Comer é sempre errado (o item não é mais seu para aceitar)
+            acao = "rejeitar"
         if acao != acao_esperada:
              n_erros += 1
 

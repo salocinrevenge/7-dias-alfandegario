@@ -207,10 +207,18 @@ class AudioEffects:
         }
         for key, gen in sfx_map.items():
             try:
-                wav = gen()
-                wave = rl.load_wave_from_memory(b".wav", wav, len(wav))
-                self.sfx[key] = rl.load_sound_from_wave(wave)
-                rl.unload_wave(wave)
+                # Generators currently produce WAV bytes; for web builds use OGG in-memory
+                # loading if available in the raylib binding. Some bindings provide
+                # load_sound_from_memory which accepts an extension and raw data.
+                data = gen()
+                try:
+                    # Prefer loading directly as OGG in memory for web compatibility
+                    self.sfx[key] = rl.load_sound_from_memory(b".ogg", data, len(data))
+                except Exception:
+                    # Fallback: load as WAV wave then convert to Sound for native builds
+                    wave = rl.load_wave_from_memory(b".wav", data, len(data))
+                    self.sfx[key] = rl.load_sound_from_wave(wave)
+                    rl.unload_wave(wave)
             except Exception:
                 self.sfx[key] = None
 
@@ -290,18 +298,19 @@ class AudioEffects:
 
         t = self.time
 
+        # Venenoso e radioativo nao devem modificar o audio
         # Venenoso (poison) — sick wobble, slightly muted
-        if item.atributos.get("VENENOSO"):
-            wobble = 0.07 * math.sin(t * 1.8 + 0.5) + 0.03 * math.sin(t * 3.1)
-            pitch += wobble
-            volume *= 0.82
-            pan += 0.08 * math.sin(t * 1.2)
+        # if item.atributos.get("VENENOSO"):
+        #     wobble = 0.07 * math.sin(t * 1.8 + 0.5) + 0.03 * math.sin(t * 3.1)
+        #     pitch += wobble
+        #     volume *= 0.82
+        #     pan += 0.08 * math.sin(t * 1.2)
 
-        # Radioativo — fast jitter / crackle
-        if item.atributos.get("RADIOATIVO"):
-            jitter = 0.025 * math.sin(t * 14.7) + 0.015 * math.sin(t * 21.3)
-            pitch += jitter
-            volume *= 0.92 + 0.06 * math.sin(t * 11.0)  # slight flutter
+        # # Radioativo — fast jitter / crackle
+        # if item.atributos.get("RADIOATIVO"):
+        #     jitter = 0.025 * math.sin(t * 14.7) + 0.015 * math.sin(t * 21.3)
+        #     pitch += jitter
+        #     volume *= 0.92 + 0.06 * math.sin(t * 11.0)  # slight flutter
 
         # Mimico — uneasy subtle warble
         if item.atributos.get("MIMICO"):

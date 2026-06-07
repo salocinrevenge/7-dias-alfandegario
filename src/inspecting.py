@@ -616,7 +616,7 @@ def _on_button(gc: Game_context, key: str):
     if len(gc.itens_hoje['to evaluate']) > 0:
         errors_before = gc.n_erros
         _start_object_transition(gc, 1 if key == "aceitar" else -1)
-        gc.itens_hoje['to evaluate'][0].compute_negatives(key)
+        gc.compute_negatives(key)
         if gc.n_erros > errors_before and gc.current_state not in (
             State.GAME_OVER_EXPLODED, State.GAME_OVER_FIRED
         ):

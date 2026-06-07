@@ -451,11 +451,10 @@ async def main():
 
     rl.set_config_flags(rl.FLAG_WINDOW_RESIZABLE)
     rl.set_trace_log_level(rl.LOG_NONE)
-    rl.init_window(1480, 800, b"The Enigma")
+    rl.init_window(1480, 800, b"7 Dias de Alfandegario")
     rl.set_target_fps(60)
     rl.enable_cursor()
 
-    rl.toggle_fullscreen()
     if sys.platform != "emscripten":
         monitor = rl.get_current_monitor()
         rl.set_window_size(rl.get_monitor_width(monitor), rl.get_monitor_height(monitor))
