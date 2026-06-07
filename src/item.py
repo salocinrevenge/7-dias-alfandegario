@@ -170,7 +170,7 @@ class Item:
                 print(f"{atributo} (accept)", end=" ")
                 must_accept += 1
 
-        expected_action = "rejeitar" if must_reject > must_accept else "aceitar"
+        expected_action = "rejeitar" if must_reject >= must_accept else "aceitar"
         print(f"=> expected action: {expected_action}, player action: {acao}")
 
         effective_action = "rejeitar" if acao == "comer" else acao

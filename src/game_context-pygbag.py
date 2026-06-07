@@ -251,8 +251,8 @@ class Game_context:
         self.penalidade = 0
         # Per-day penalty allowance before the day must be redone (penalidade is
         # reset every morning, so this is "mistakes tolerated in a single day").
-        self.penalidade_to_day = 8
-        self.erros_to_fire = 60
+        self.penalidade_to_day = 10
+        self.erros_to_fire = 10
         self.dia_atual = 0
         self.n_itens_dias = {
             1: 3,
@@ -307,8 +307,9 @@ class Game_context:
         self.total_correct = 0
         self.total_foods = 0
 
-        self.item_time_max = 60.0
-        self.item_time_left = 60.0
+        self.MAX_TIME = 50.0
+        self.item_time_max = self.MAX_TIME
+        self.item_time_left = self.item_time_max
 
         # --- Hunger system ---
         self.hunger_max = 100.0
@@ -366,8 +367,8 @@ class Game_context:
         self.created_room = False
         self.itens_hoje = {'to evaluate': [], 'evaluated': []}
 
-        self.item_time_max = 60.0
-        self.item_time_left = 60.0
+        self.item_time_max = self.MAX_TIME
+        self.item_time_left = self.item_time_max
 
         self.day_intro_timer = 0.0
         self.day_intro_char_count = 0.0
