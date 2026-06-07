@@ -261,7 +261,7 @@ def draw_inspect_3d(gc: Game_context):
         gc.camera.position = orig_cam_pos
 
     # --- Draw HUD for Errors and Penalties ---
-    text = f"Erros: {gc.n_erros}   Penalidade: {gc.penalidade}".encode('utf-8')
+    text = f"Erros: {gc.n_erros if gc.n_erros <gc.erros_to_fire else 'x'}   Penalidade: {gc.penalidade if gc.penalidade < gc.penalidade_to_day else 'x'}".encode('utf-8')
     rl.draw_text(text, 20, 20, 20, rl.WHITE)
 
     # Remaining time, big and centered at the top using the main serif font.
