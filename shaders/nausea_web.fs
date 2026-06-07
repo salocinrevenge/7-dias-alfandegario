@@ -1,5 +1,12 @@
 #version 100
+// Prefer highp (the wave math needs it) but fall back to mediump on the rare
+// GPU that can't do highp fragments. The CPU also wraps 'seconds' small, so it
+// stays smooth even on the fallback.
+#ifdef GL_FRAGMENT_PRECISION_HIGH
+precision highp float;
+#else
 precision mediump float;
+#endif
 
 // Nausea curse — wavy screen distortion with a sickly green tint (GLSL ES 1.0).
 varying vec2 fragTexCoord;

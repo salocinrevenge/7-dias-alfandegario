@@ -518,8 +518,10 @@ def _pick_badge_position(model, mat_idx, bw, bh):
     inset_x = max(1, bw // 6)
     inset_y = max(1, bh // 6)
 
-    # Try many times with footprint validation
-    for _ in range(300):
+    # Try a bounded number of times with footprint validation. Kept modest
+    # because this runs in pure Python (slow under Pyodide on the web build); the
+    # centroid fallback below covers the rare miss.
+    for _ in range(100):
         # Weighted random triangle
         r = random.random() * total
         accum = 0.0

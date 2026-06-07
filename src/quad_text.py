@@ -10,16 +10,20 @@ Used by the inspect paper today; meant to be shared by other quads later.
 import pyray as rl
 
 
-# Named font sizes, in texture pixels.
+# Named font sizes, in texture pixels. Scaled 2x vs the original layout so the
+# paper texture bakes at double resolution for crisp text when the sheet fills a
+# large slice of a native-resolution screen (PAPER_TW/TH are scaled to match in
+# game_context). The serif atlas is baked at 96px, so every size here is at or
+# below native atlas resolution — no upscaling blur.
 SIZES = {
-    "title": 48,
-    "h1":    34,
-    "h2":    36,
-    "body":  33,
-    "small": 22,
+    "title": 96,
+    "h1":    68,
+    "h2":    72,
+    "body":  66,
+    "small": 44,
 }
 DEFAULT_TAG = "body"
-LINE_GAP    = 8          # extra vertical pixels between lines
+LINE_GAP    = 16         # extra vertical pixels between lines
 
 
 def parse_tag(line: bytes) -> tuple[int, bytes]:

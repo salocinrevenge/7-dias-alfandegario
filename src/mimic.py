@@ -68,7 +68,7 @@ def preload_appendage_models():
 
 
 def unload_appendage_models():
-    for model, _ in _MODEL_CACHE.values():
+    for model, _, _ in _MODEL_CACHE.values():
         rl.unload_model(model)
     _MODEL_CACHE.clear()
 

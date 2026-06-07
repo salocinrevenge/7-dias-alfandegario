@@ -23,7 +23,7 @@ void main() {
     vec2 distortedTexCoord = vec2(fragTexCoord.x + waveX, fragTexCoord.y + waveY);
     
     // Sample the texture using our wavy coordinates
-    vec4 texelColor = texture2D(texture0, distortedTexCoord) * colDiffuse * fragColor;
+    vec4 texelColor = texture(texture0, distortedTexCoord) * colDiffuse * fragColor;
     
     // Optional: Add a subtle green/sickly color tint to enhance the nausea vibe
     texelColor.rgb *= vec3(0.9, 1.1, 0.9);

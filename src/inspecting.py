@@ -284,7 +284,10 @@ def draw_inspect_3d(gc: Game_context):
 
 
 def send_item(gc: Game_context):
-    gc.itens_hoje['evaluated'].append(gc.itens_hoje['to evaluate'].pop(0))
+    judged = gc.itens_hoje['to evaluate'].pop(0)
+    gc.itens_hoje['evaluated'].append(judged)
+    # The judged item is gone for good — free its badged model copy.
+    gc._evict_item_model(judged)
     gc._ensure_mimic_eyes_for_current()
 
 
@@ -379,6 +382,10 @@ def _update_object_transition(gc: Game_context, dt: float):
             gc.item_time_left = gc.item_time_max
             is_food = _current_is_food(gc)
             gc.rebake_paper(is_food=is_food)
+            # The object has landed and the player starts inspecting — bake the
+            # NEXT item's badged model shortly after so the upcoming swap is
+            # smooth. Delayed a beat so it doesn't pile onto this arrival frame.
+            gc.gs["next_prefetch_timer"] = 0.7
 
 
 # ---------------------------------------------------------------------------
@@ -459,6 +466,18 @@ def update_inspect(gc: Game_context, dt: float):
     if gc.gs.get("obj_anim"):
         _update_object_transition(gc, dt)
         return
+
+    # Look-ahead bake of the next item's badged model (see _update_object_
+    # transition). Fires once, a short delay after the current object settles, so
+    # the heavy stamping happens during quiet inspection instead of mid-swap.
+    timer = gc.gs.get("next_prefetch_timer")
+    if timer is not None:
+        timer -= dt
+        if timer <= 0:
+            gc.gs["next_prefetch_timer"] = None
+            gc.prefetch_next_item_model()
+        else:
+            gc.gs["next_prefetch_timer"] = timer
 
     # Item countdown timer
     if len(gc.itens_hoje["to evaluate"]) > 0 and not gc.gs.get("object_hidden"):

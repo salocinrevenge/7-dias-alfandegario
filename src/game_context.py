@@ -30,7 +30,7 @@ _PAPER_LINES = [
     b"<h2>              Rejeitar   Comer             Aceitar",
 ]
 
-PAPER_TW, PAPER_TH = 512, 724
+PAPER_TW, PAPER_TH = 1024, 1448   # 2x bake resolution (see quad_text.SIZES)
 _PAPER_MX = PAPER_TW // 8           # 64 px left margin
 _PAPER_MY = PAPER_TH // 12          # ~60 px top margin
 
@@ -154,8 +154,17 @@ class Game_context:
         # ---------------------------------------------------------------------------
         # RENDER RESOLUTION
         # ---------------------------------------------------------------------------
-        self.VIRTUAL_W = int(960 * 0.5)
-        self.VIRTUAL_H = int(720 * 0.5)
+        # The scene is rendered into a render texture whose size tracks the
+        # largest 16:9 rectangle that fits the current window/canvas, measured in
+        # *physical* pixels (see update_render_target in main.py). That keeps the
+        # framing identical desktop vs web (always 16:9, black-bar letterboxed by
+        # get_scaled_rect) while rendering at the display's native resolution so
+        # nothing is upscaled/blurry. All layout is expressed as fractions of
+        # VIRTUAL_H, so it stays proportional at any resolution. These are just
+        # the bootstrap values; the real size is set on the first frame.
+        self.RENDER_ASPECT = 16.0 / 9.0
+        self.VIRTUAL_W = 1280
+        self.VIRTUAL_H = 720
 
         # ---------------------------------------------------------------------------
         # SCENE CONSTANTS
@@ -326,11 +335,15 @@ class Game_context:
         self.animations = {}
         self.mimic_eyes = {}
         self.current_mimic_eyes = None
-        # A fresh, badge-stamped copy of the current item's model (badges depend
-        # on the item instance's random attributes, so the shared pristine model
-        # in self.models is never touched). None → draw the pristine model.
-        self.current_item_model = None
-        self.current_item_model_name = None
+        # Badge-stamped model copies, keyed by id(item). Badges depend on the
+        # item instance's random attributes, so the shared pristine model in
+        # self.models is never touched. A value of None means "plain item, draw
+        # the pristine model". Baking a copy (disk load + texture stamping) is
+        # heavy and used to run synchronously mid-swap, freezing the loop long
+        # enough to glitch audio; it's now prefetched during the calm inspection
+        # of the previous item (see prefetch_item_model) and evicted once an item
+        # has been judged.
+        self.item_models = {}
         self.setup_animations()
         self.load_sounds()
 
@@ -380,7 +393,7 @@ class Game_context:
         self.current_tutorial_sound = None
 
         # Per-item visual state.
-        self._clear_current_item_model()
+        self._clear_item_models()
         self.mimic_eyes.clear()
         self.current_mimic_eyes = None
 
@@ -468,6 +481,10 @@ class Game_context:
         self.items_correct_today = 0
         self.foods_eaten_today = 0
         print(f"Starting day {self.dia_atual}...")
+        # Drop any badged models cached for the previous day's items before the
+        # new batch replaces them (their item objects are about to be discarded,
+        # so their cache entries would otherwise leak).
+        self._clear_item_models()
         self.itens_hoje['to evaluate'] = [Item() for _ in range(self.n_itens_dias.get(self.dia_atual, 15))]
         self.itens_hoje['evaluated'] = []
 
@@ -508,7 +525,11 @@ class Game_context:
         else:
             self.current_mimic_eyes = None
 
-        self.apply_badges_for_current()
+        # The current item's badged model is normally already cached (prefetched
+        # while the previous item was being inspected); this is a cheap cache hit.
+        # It only bakes synchronously here as a fallback (e.g. the very first item
+        # of a day, which has no previous item to prefetch behind).
+        self.prefetch_item_model(current)
 
 
     # Badge images (under textures/) keyed by the Item attribute that triggers
@@ -533,41 +554,64 @@ class Game_context:
         # Avoid stamping the same curse twice (e.g. VENENOSO + AMALDICOADO→venenoso).
         return list(dict.fromkeys(badges))
 
-    def _clear_current_item_model(self):
-        if self.current_item_model is not None:
-            rl.unload_model(self.current_item_model)
-        self.current_item_model = None
-        self.current_item_model_name = None
+    def _bake_item_model(self, item):
+        """Build a fresh, badge-stamped model copy for *item*, or None when the
+        item has no badges (callers then fall back to the shared pristine model).
 
-    def apply_badges_for_current(self):
-        """Stamp the current item's attribute badges onto a fresh copy of its
-        model. Plain items (no badges) keep using the shared pristine model."""
-        self._clear_current_item_model()
-
-        items = self.itens_hoje.get('to evaluate', [])
-        if not items:
-            return
-
-        item = items[0]
+        A fresh copy keeps the shared model in self.models pristine; the draw
+        pass reassigns the lighting/shadow shaders to it every frame. This is the
+        expensive call (glTF load + per-texture stamping) — keep it off the
+        gameplay-critical swap frame by prefetching ahead of time.
+        """
         badges = self._badges_for_item(item)
         if not badges:
-            return
-
-        # Fresh copy so the shared model in self.models stays pristine; the draw
-        # pass reassigns the lighting/shadow shaders to it every frame.
+            return None
         model = rl.load_model(OBJECT_MODELS[item.name])
         for badge_name in badges:
-            # for i in range(2):
             attach_badge(model, badge_name, degradation=0.0, target_px=140)
+        return model
 
-        self.current_item_model = model
-        self.current_item_model_name = item.name
+    def prefetch_item_model(self, item):
+        """Ensure *item*'s badged model is baked and cached. Cheap (a no-op) once
+        cached, so it's safe to call every frame; the heavy bake happens at most
+        once per item. Call it for the NEXT item while the player inspects the
+        current one so the swap itself stays smooth."""
+        if item is None:
+            return
+        key = id(item)
+        if key in self.item_models:
+            return
+        self.item_models[key] = self._bake_item_model(item)
+
+    def prefetch_next_item_model(self):
+        """Look-ahead: bake the item that will appear after the current one."""
+        items = self.itens_hoje.get('to evaluate', [])
+        if len(items) > 1:
+            self.prefetch_item_model(items[1])
+
+    def _evict_item_model(self, item):
+        """Unload and forget a single item's cached model (after it's judged)."""
+        if item is None:
+            return
+        model = self.item_models.pop(id(item), None)
+        if model is not None:
+            rl.unload_model(model)
+
+    def _clear_item_models(self):
+        """Unload every cached badged model (day rollover / reset / shutdown)."""
+        for model in self.item_models.values():
+            if model is not None:
+                rl.unload_model(model)
+        self.item_models.clear()
 
     def inspect_model(self, name):
-        """The model to draw for the inspected item: the badged copy when it
-        belongs to this item, otherwise the shared pristine model."""
-        if self.current_item_model is not None and self.current_item_model_name == name:
-            return self.current_item_model
+        """The model to draw for the inspected item: its cached badged copy when
+        one exists, otherwise the shared pristine model."""
+        item = self.current_item
+        if item is not None:
+            model = self.item_models.get(id(item))
+            if model is not None:
+                return model
         return self.models[name]
 
     def load_fonts(self):
@@ -877,6 +921,26 @@ class Game_context:
         if self.current_music_stream is not None:
             rl.update_music_stream(self.current_music_stream)
 
+    def resync_music(self):
+        """Restart the current music stream after a loop suspension (e.g. the
+        browser tab was backgrounded). The stream underruns while no
+        update_music_stream calls happen, and on some backends — notably the
+        WebAudio/miniaudio build pygbag uses — it never recovers on its own and
+        the audio just stays silent/stuck. Stopping and replaying re-primes the
+        buffer so sound resumes."""
+        stream = self.current_music_stream
+        if stream is None:
+            return
+        try:
+            rl.stop_music_stream(stream)
+            rl.play_music_stream(stream)
+        except Exception:
+            pass
+        # Any one-shot narration that was mid-play is now desynced too; drop the
+        # handle so the intro logic doesn't wait forever on a sound that the
+        # backend has effectively abandoned.
+        self.current_tutorial_sound = None
+
     def unload_fonts(self):
         for font in self.fonts.values():
             rl.unload_font(font)
@@ -911,7 +975,7 @@ class Game_context:
                         pass
 
     def unload_models(self):
-        self._clear_current_item_model()
+        self._clear_item_models()
         self.mimic_eyes.clear()
         unload_appendage_models()
         for model in self.models.values():

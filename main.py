@@ -31,13 +31,18 @@ def draw_pause(font: rl.Font):
     def _draw(text: bytes, x: int, y: int, size: float, color):
         rl.draw_text_ex(font, text, rl.Vector2(float(x), float(y)), size, 1, color)
 
+    # Sizes relative to the window height so the overlay reads the same on a
+    # small browser canvas and a fullscreen desktop window.
+    title_size = sh * 0.20
+    sub_size   = sh * 0.087
     title = b"PAUSADO"
-    tw = _measure(title, 160)
-    _draw(title, cx - tw // 2, cy - 24, 160, rl.WHITE)
+    tw = _measure(title, title_size)
+    _draw(title, cx - tw // 2, cy - int(sh * 0.03), title_size, rl.WHITE)
 
     for i, text in enumerate((b"[P] Resumir", b"[M] Menu Inicial")):
-        w = _measure(text, 70)
-        _draw(text, cx - w // 2, cy + 190 + i * 88, 70, rl.Color(180, 180, 180, 200))
+        w = _measure(text, sub_size)
+        _draw(text, cx - w // 2, cy + int(sh * 0.24) + i * int(sh * 0.11),
+              sub_size, rl.Color(180, 180, 180, 200))
 
 
 
@@ -48,6 +53,46 @@ def _set_shader_resolution(shader, loc: int, w: float, h: float):
     """Push the render-texture resolution into the painting shader."""
     res = rl.ffi.new("float[2]", [w, h])
     rl.set_shader_value(shader, loc, res, rl.SHADER_UNIFORM_VEC2)
+
+
+def _fit_aspect(sw: int, sh: int, aspect: float) -> tuple[int, int]:
+    """Largest (w, h) of the given aspect ratio that fits inside sw x sh, in
+    physical pixels and rounded to even numbers (some GL drivers dislike odd
+    render-texture dimensions)."""
+    if sw / sh > aspect:
+        h = sh
+        w = int(round(sh * aspect))
+    else:
+        w = sw
+        h = int(round(sw / aspect))
+    return max(2, w - (w & 1)), max(2, h - (h & 1))
+
+
+def update_render_target(gc: Game_context, render_tex, src_rect):
+    """Keep the render texture sized to the largest 16:9 box that fits the live
+    window, at native pixel resolution. Recreated only when the size actually
+    changes, so a steady window costs nothing. Rendering at native res (instead
+    of a fixed low virtual size) is what keeps text/edges crisp; get_scaled_rect
+    then blits it 1:1 and letterboxes the surrounding bars."""
+    sw, sh = rl.get_screen_width(), rl.get_screen_height()
+    if sw <= 0 or sh <= 0:
+        return render_tex, src_rect
+
+    vw, vh = _fit_aspect(sw, sh, gc.RENDER_ASPECT)
+    if vw == gc.VIRTUAL_W and vh == gc.VIRTUAL_H:
+        return render_tex, src_rect
+
+    gc.VIRTUAL_W, gc.VIRTUAL_H = vw, vh
+    rl.unload_render_texture(render_tex)
+    rl.unload_render_texture(gc.keyhole_mask)
+    render_tex = rl.load_render_texture(vw, vh)
+    rl.set_texture_filter(render_tex.texture, rl.TEXTURE_FILTER_BILINEAR)
+    gc.keyhole_mask = rl.load_render_texture(vw, vh)
+    src_rect = rl.Rectangle(0, 0, vw, -vh)
+    # Whole-screen shaders need the new resolution for their aspect math.
+    _set_shader_resolution(gc.painting_shader, gc.painting_res_loc, vw, vh)
+    _set_shader_resolution(gc.magnifier_shader, gc.magnifier_res_loc, vw, vh)
+    return render_tex, src_rect
 
 
 
@@ -73,23 +118,6 @@ def general_inputs(gc: Game_context): # Essa funcao mostra q era pra ter uma cla
     # -------------------------------------------------------------- #
     if rl.is_key_pressed(rl.KEY_K):
         gc.painting_enabled = not gc.painting_enabled
-
-
-def resize_texture_if_needed(gc: Game_context, render_tex, src_rect):
-    sw, sh = rl.get_screen_width(), rl.get_screen_height()
-    if sw > 0 and sh > 0 and (sw != gc.VIRTUAL_W or sh != gc.VIRTUAL_H):
-        rl.unload_render_texture(render_tex)
-        rl.unload_render_texture(gc.keyhole_mask)
-        gc.VIRTUAL_W, gc.VIRTUAL_H = sw, sh
-        render_tex = rl.load_render_texture(gc.VIRTUAL_W, gc.VIRTUAL_H)
-        rl.set_texture_filter(render_tex.texture, rl.TEXTURE_FILTER_BILINEAR)
-        gc.keyhole_mask = rl.load_render_texture(gc.VIRTUAL_W, gc.VIRTUAL_H)
-        src_rect = rl.Rectangle(0, 0, gc.VIRTUAL_W, -gc.VIRTUAL_H)
-        # Keep both whole-screen shaders' resolution uniforms in sync.
-        _set_shader_resolution(gc.painting_shader, gc.painting_res_loc, gc.VIRTUAL_W, gc.VIRTUAL_H)
-        _set_shader_resolution(gc.magnifier_shader, gc.magnifier_res_loc, gc.VIRTUAL_W, gc.VIRTUAL_H)
-
-    return render_tex, src_rect
 
 
 def _advance_tutorial(gc: Game_context):
@@ -372,20 +400,24 @@ def blit_on_screen(gc: Game_context, render_tex=None, src_rect=None, screen_shad
         case State.INSPECT:
             gc.player.draw_hud(dst)
             if gc.day_intro_timer > 0:
-                sw, sh = rl.get_screen_width(), rl.get_screen_height()
+                # Anchor to the letterboxed scene rect (dst), not the raw window,
+                # so the card sits centred over the visible scene and scales with
+                # it instead of drifting into the black bars.
+                ox, oy = dst.x, dst.y
+                sw, sh = dst.width, dst.height
                 font = gc.fonts["serif"]
-                
+
                 day_text = f"Dia {gc.dia_atual}"
                 chars_to_draw = int(gc.day_intro_char_count)
                 if chars_to_draw > len(day_text):
                     chars_to_draw = len(day_text)
-                    
+
                 current_day_text = day_text[:chars_to_draw].encode('utf-8')
                 font_size = int(sh * 0.14)
                 text_width = rl.measure_text_ex(font, current_day_text, font_size, 1).x
 
                 rl.draw_text_ex(font, current_day_text,
-                                rl.Vector2((sw - text_width) / 2, sh * 0.38),
+                                rl.Vector2(ox + (sw - text_width) / 2, oy + sh * 0.38),
                                 font_size, 1, rl.WHITE)
 
                 # Day summary stats (after title is fully typed, only day 2+).
@@ -416,14 +448,14 @@ def blit_on_screen(gc: Game_context, render_tex=None, src_rect=None, screen_shad
                     for i, line in enumerate(lines):
                         lb = line.encode("utf-8")
                         tw = rl.measure_text_ex(font, lb, stats_fs, 1).x
-                        cy = sh * 0.52 + i * (stats_fs * 1.6)
+                        cy = oy + sh * 0.52 + i * (stats_fs * 1.6)
                         rl.draw_text_ex(font, lb,
-                                        rl.Vector2((sw - tw) / 2, cy),
+                                        rl.Vector2(ox + (sw - tw) / 2, cy),
                                         stats_fs, 1, grade_color if i == len(lines) - 1 and total > 0
                                         else rl.Color(200, 180, 150, 230))
 
                 rl.draw_text_ex(font, b"[ENTER] para pular",
-                                rl.Vector2(sw * 0.42, sh * 0.72),
+                                rl.Vector2(ox + sw * 0.42, oy + sh * 0.72),
                                 int(sh * 0.022), 1, rl.Color(120, 100, 70, 200))
 
         case State.PAUSE:
@@ -464,7 +496,10 @@ async def main():
     gc.player = Player(gc)
     print("Initialization complete, entering main loop...")
 
-    gc.VIRTUAL_W, gc.VIRTUAL_H = rl.get_screen_width(), rl.get_screen_height()
+    # Size the render target to the native-resolution 16:9 box for the current
+    # window; update_render_target keeps it in sync as the window resizes.
+    gc.VIRTUAL_W, gc.VIRTUAL_H = _fit_aspect(
+        rl.get_screen_width(), rl.get_screen_height(), gc.RENDER_ASPECT)
     render_tex = rl.load_render_texture(gc.VIRTUAL_W, gc.VIRTUAL_H)
     rl.set_texture_filter(render_tex.texture, rl.TEXTURE_FILTER_BILINEAR)
     src_rect = rl.Rectangle(0, 0, gc.VIRTUAL_W, -gc.VIRTUAL_H)
@@ -510,13 +545,29 @@ async def main():
 
         gc.prev_time = gc.now
 
-        current_time = gc.now - gc.start_time 
-        # --- SEND TIME TO NAUSEA SHADER ---
-        time_ptr = rl.ffi.new("float *", current_time)
-        rl.set_shader_value(nausea_shader, nausea_time_loc, time_ptr, rl.SHADER_UNIFORM_FLOAT)
+        # A big dt means the loop was suspended — on web this happens whenever the
+        # browser tab loses focus (switching workspace / desktop environment), which
+        # freezes requestAnimationFrame. While suspended update_music_stream stops
+        # being called and the streamed audio underruns; on resume it can stay stuck.
+        # Clamp dt so timers/animations don't lurch forward, and resync the music
+        # stream so it starts feeding the audio device again instead of hanging.
+        if dt > 0.25:
+            dt = 1.0 / 60.0
+            gc.resync_music()
 
-        # fullscreen resize screen
-        render_tex, src_rect = resize_texture_if_needed(gc, render_tex, src_rect)
+        # Keep the render target at the native-resolution 16:9 box for the
+        # current window size (recreates textures only when the size changes).
+        render_tex, src_rect = update_render_target(gc, render_tex, src_rect)
+
+        current_time = gc.now - gc.start_time
+        # --- SEND TIME TO NAUSEA SHADER ---
+        # Wrap the clock before sending it to the GPU. The web (GLSL ES) build
+        # runs this distortion at limited float precision, and sin(seconds*3)
+        # with an ever-growing 'seconds' loses all precision after a minute or
+        # two — the wave freezes or turns to garbage. Wrapping keeps the argument
+        # small so the effect stays smooth (desktop is unaffected).
+        time_ptr = rl.ffi.new("float *", current_time % 1000.0)
+        rl.set_shader_value(nausea_shader, nausea_time_loc, time_ptr, rl.SHADER_UNIFORM_FLOAT)
 
         # MUSIC
         gc.update_music()

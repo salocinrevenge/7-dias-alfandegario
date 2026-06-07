@@ -1,4 +1,13 @@
+#version 100
+// highp matters here: the Kuwahara variance test (sq/n - mean*mean) cancels two
+// large nearly-equal sums, so mediump rounding visibly changes which quadrant
+// "wins" and makes the painted look differ from desktop. highp keeps it stable;
+// fall back to mediump only where highp fragments aren't available.
+#ifdef GL_FRAGMENT_PRECISION_HIGH
+precision highp float;
+#else
 precision mediump float;
+#endif
 
 varying vec2 fragTexCoord;
 varying vec4 fragColor;
