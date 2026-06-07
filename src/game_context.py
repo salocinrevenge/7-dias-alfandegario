@@ -283,17 +283,7 @@ class Game_context:
         self.positive_rejects = ["REAL", "NOBRE", "ALIADOS"]
         self.negative_acept = ["AMALDICOADO", "VENENOSO", "RADIOATIVO", "RIVAIS", "MIMICO"]
 
-        self.properties_on_list = {
-            "AMALDICOADO": False,
-            "VENENOSO": False,
-            "RADIOATIVO": False,
-            "REAL": False,
-            "NOBRE": False,
-            "ALIADOS": False,
-            "RIVAIS": False,
-            "MIMICO": False,
-            "MORTE": False,
-        }
+        self._empty_item_properties = Item.empty_properties_on_list()
 
         self.reset_count_until_end_day = 100
         self.count_until_end_day = self.reset_count_until_end_day
@@ -383,8 +373,7 @@ class Game_context:
         self.day_intro_timer = 0.0
         self.day_intro_char_count = 0.0
 
-        for key in self.properties_on_list:
-            self.properties_on_list[key] = False
+        self.reset_current_item_properties()
 
         # Tutorial back to its day-1 state (resets index/seen/char counters too).
         self.reset_tutorial_texts()
@@ -402,6 +391,26 @@ class Game_context:
             add_shake(self, name, offset=0.001, velocity=0.3)
         # ...and the paper (only applied while it's held in front of the player).
         add_shake(self, "paper", offset=0.001, velocity=0.3)
+
+    @property
+    def current_item(self):
+        items = self.itens_hoje.get('to evaluate', [])
+        return items[0] if items else None
+
+    @property
+    def properties_on_list(self):
+        item = self.current_item
+        if item is None:
+            return self._empty_item_properties
+        return item.properties_on_list
+
+    def reset_current_item_properties(self):
+        item = self.current_item
+        if item is None:
+            for key in self._empty_item_properties:
+                self._empty_item_properties[key] = False
+            return
+        item.reset_properties_on_list()
 
     def start_new_day(self):
         self.created_room = True
@@ -995,63 +1004,35 @@ class Game_context:
             self.keyhole_curse_active = True
 
     def compute_negatives(self, acao: str) -> list[str]:
-        penalidade = self.penalidade
-        n_erros = self.n_erros
-        n_erros_before = n_erros
-        
-        item = self.itens_hoje['to evaluate'][0]
+        n_erros_before = self.n_erros
 
-        # Checklist audit: count every property the player mis-identified on the
-        # paper. This feeds the HUD "Erros" tally only — it must NOT drive the
-        # per-day redo penalty, or near-ubiquitous marks (e.g. REAL, true on
-        # ~99% of items) would force a redo every day no matter how well the
-        # player actually judged the item.
-        for atributo, valor in self.properties_on_list.items():
-            if atributo in ("MIMICO", "MORTE"): # Não deve ser considerado como atributo valido
-                continue
-            if valor != item.atributos[atributo]:
-                print(f"Checklist mismatch on {atributo}: player said {valor}, but item has {item.atributos[atributo]}")
-                penalidade += self.error_costs.get(atributo, 1)
+        item = self.current_item
+        if item is None:
+            return []
 
-        # Penalidade is judged on the VERDICT itself: you only pay when the
-        # accept/reject call was wrong for a property the item really carries.
-        must_reject = 0
-        must_accept = 0
-        print("Judging item with attributes:", end=" ")
-        for atributo, present in item.atributos.items():
-            if not present:
-                continue
-            if atributo in self.negative_acept:
-                print(f"{atributo} (reject)", end=" ")
-                must_reject += 1
-            if atributo in self.positive_rejects:
-                print(f"{atributo} (accept)", end=" ")
-                must_accept += 1
-        acao_esperada = "rejeitar" if must_reject > must_accept else "aceitar"
-        print(f"=> expected action: {acao_esperada}, player action: {acao}")
-        if acao == "comer":# Comer é sempre errado (o item não é mais seu para aceitar)
-            acao = "rejeitar"
-        if acao != acao_esperada:
-             n_erros += 1
+        result = item.compute_negatives(
+            acao, self.error_costs, self.positive_rejects, self.negative_acept)
+        self.penalidade += result["checklist_penalty"]
+        if result["verdict_error"]:
+             self.n_erros += 1
 
-        if acao == "aceitar":
+        if result["effective_action"] == "aceitar":
             # Accepting a cursed item inflicts its curse on the player. (MIMICO's
             # penalty is already covered by negative_acept above.)
             self.apply_curses(item)
             if item.atributos["MORTE"]:
                 self.audio_effects.play("explosion")
                 self.transition.start(State.GAME_OVER_EXPLODED)
-        self.n_erros = n_erros
-        self.penalidade = penalidade
 
         # Per-day tracking
-        errors_this_item = n_erros - n_erros_before
+        errors_this_item = self.n_erros - n_erros_before
         self.items_judged_today += 1
         self.total_items_judged += 1
         if errors_this_item == 0:
             self.items_correct_today += 1
             self.total_correct += 1
         self.errors_today += errors_this_item
+        return [result["expected_action"]]
 
     def reset_effects(self):
         """Clear all active curses and hunger — called on restart / return to menu."""

@@ -508,7 +508,9 @@ def update_inspect(gc: Game_context, dt: float):
                     "check_6": "RIVAIS",
                 }
                 if item["key"] in prop_map:
-                    gc.properties_on_list[prop_map[item["key"]]] = states[item["key"]]
+                    current_item = gc.current_item
+                    if current_item is not None:
+                        current_item.set_list_property(prop_map[item["key"]], states[item["key"]])
                 print(f"Updated paper state: {item['key']} is now {states[item['key']]}, list: {gc.properties_on_list}")
                     
                 gc.rebake_paper(hovered_key=new_hk, is_food=_current_is_food(gc))
@@ -601,8 +603,7 @@ def _on_button(gc: Game_context, key: str):
         gc.gs["paper_hovered_item"] = None
         gc.gs["paper_hovered_key"] = None
         gc.gs["paper_states"] = {}
-        for prop in gc.properties_on_list.keys():
-            gc.properties_on_list[prop] = False
+        gc.reset_current_item_properties()
         gc.rebake_paper(is_food=False)
         gc.gs["food_msg"] = food_msg
         gc.gs["food_msg_timer"] = 1.8
@@ -628,8 +629,7 @@ def _on_button(gc: Game_context, key: str):
     gc.gs["paper_hovered_key"] = None
     gc.gs["paper_states"] = {}
     
-    # Also reset the properties tracking correctly
-    for prop in gc.properties_on_list.keys():
-        gc.properties_on_list[prop] = False
+    # Also reset the current item's paper checklist tracking correctly.
+    gc.reset_current_item_properties()
         
     gc.rebake_paper(is_food=False)

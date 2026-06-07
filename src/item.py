@@ -31,15 +31,42 @@ FOOD_NAMES = {"maca", "lichia", "limao", "bolo", "cebola"}
 
 class Item:
     tipos = list(OBJECT_MODELS.keys())
+    PROPERTY_KEYS = (
+        "AMALDICOADO",
+        "VENENOSO",
+        "RADIOATIVO",
+        "REAL",
+        "NOBRE",
+        "ALIADOS",
+        "RIVAIS",
+        "MIMICO",
+        "MORTE",
+    )
+    CHECKLIST_IGNORED_KEYS = ("MIMICO", "MORTE")
     CURSE_VARIANTS = ("nausea", "chave", "inverter")
     ALIADO_VARIANTS = ("Aliado1", "Aliado2", "Aliado3")
     INIMIGO_VARIANTS = ("Inimigo1", "Inimigo2", "Inimigo3")
+    DEFAULT_ERROR_COSTS = {
+        "AMALDICOADO": 4,
+        "VENENOSO": 3,
+        "RADIOATIVO": 1,
+        "REAL": 2,
+        "NOBRE": 1,
+        "ALIADOS": 1,
+        "RIVAIS": 1,
+        "REJECT": 1,
+        "MIMICO": 5,
+        "MORTE": 10,
+    }
+    DEFAULT_POSITIVE_REJECTS = ("REAL", "NOBRE", "ALIADOS")
+    DEFAULT_NEGATIVE_ACCEPTS = ("AMALDICOADO", "VENENOSO", "RADIOATIVO", "RIVAIS", "MIMICO")
 
     def __init__(self, name=None):
         if name is None:
             name = random.choice(self.tipos)
         self.name = name
         self.is_food = name in FOOD_NAMES
+        self.properties_on_list = self.empty_properties_on_list()
 
         if self.is_food:
             self._init_food_attrs()
@@ -55,6 +82,18 @@ class Item:
             self.nation = random.choice(self.ALIADO_VARIANTS)
         elif self.atributos["RIVAIS"]:
             self.nation = random.choice(self.INIMIGO_VARIANTS)
+
+    @classmethod
+    def empty_properties_on_list(cls) -> dict[str, bool]:
+        return {key: False for key in cls.PROPERTY_KEYS}
+
+    def reset_properties_on_list(self):
+        for key in self.properties_on_list:
+            self.properties_on_list[key] = False
+
+    def set_list_property(self, atributo: str, valor: bool):
+        if atributo in self.properties_on_list:
+            self.properties_on_list[atributo] = valor
 
     @staticmethod
     def _roll_faction(ally_chance: float, rival_chance: float) -> tuple[bool, bool]:
@@ -98,6 +137,48 @@ class Item:
             "RIVAIS":      rivais,
             "MIMICO":      random.random() < 0.04,
             "MORTE":       False,
+        }
+
+    def compute_negatives(
+            self,
+            acao: str,
+            error_costs: dict[str, int] | None = None,
+            positive_rejects: list[str] | tuple[str, ...] | None = None,
+            negative_acept: list[str] | tuple[str, ...] | None = None) -> dict:
+        error_costs = error_costs or self.DEFAULT_ERROR_COSTS
+        positive_rejects = positive_rejects or self.DEFAULT_POSITIVE_REJECTS
+        negative_acept = negative_acept or self.DEFAULT_NEGATIVE_ACCEPTS
+
+        checklist_penalty = 0
+        for atributo, valor in self.properties_on_list.items():
+            if atributo in self.CHECKLIST_IGNORED_KEYS:
+                continue
+            if valor != self.atributos[atributo]:
+                print(f"Checklist mismatch on {atributo}: player said {valor}, but item has {self.atributos[atributo]}")
+                checklist_penalty += error_costs.get(atributo, 1)
+
+        must_reject = 0
+        must_accept = 0
+        print("Judging item with attributes:", end=" ")
+        for atributo, present in self.atributos.items():
+            if not present:
+                continue
+            if atributo in negative_acept:
+                print(f"{atributo} (reject)", end=" ")
+                must_reject += 1
+            if atributo in positive_rejects:
+                print(f"{atributo} (accept)", end=" ")
+                must_accept += 1
+
+        expected_action = "rejeitar" if must_reject > must_accept else "aceitar"
+        print(f"=> expected action: {expected_action}, player action: {acao}")
+
+        effective_action = "rejeitar" if acao == "comer" else acao
+        return {
+            "checklist_penalty": checklist_penalty,
+            "expected_action": expected_action,
+            "effective_action": effective_action,
+            "verdict_error": effective_action != expected_action,
         }
 
     @property
